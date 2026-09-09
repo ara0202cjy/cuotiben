@@ -14,6 +14,8 @@
   /* ---------- 账户系统 ---------- */
   const ACCOUNTS_KEY = 'cb_accounts_v1';
   const CLOUD_KEY = 'cb_cloud_v1';            // 本地游客模式下的云端配置
+  // 注意：token 不写进源码（GitHub Pages 为公开仓库，硬编码凭证会被 secret scanning 拦截且会泄露）。
+  // 用户登录 lvcheng 后，在「设置 → 云端同步」里填一次即可，存浏览器本地，之后全自动同步。
   const LVCHENG = { name: 'lvcheng', pass: '000000', gistId: 'f133c0baa8e6259ff36df4e584679544' };
 
   // 简单的密码混淆（避免明文，非高强度加密；本机个人工具足够）
@@ -55,7 +57,7 @@
     else write(CLOUD_KEY, Object.assign({}, getCloud(), patch));
   }
 
-  // 预置内置账户 lvcheng / 000000，并开启自动同步到匹配 Gist（token 由用户在设置里填入）
+  // 预置内置账户 lvcheng / 000000：已开启自动同步、已预填 Gist ID；token 由用户登录后在「设置 → 云端同步」填写（仅存本机）
   function seedAccounts() {
     const s = getAccStore();
     if (!s.list.some(a => a.name === LVCHENG.name)) {
