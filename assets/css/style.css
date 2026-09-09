@@ -498,6 +498,8 @@ body {
 .set-input:focus { outline: none; border-color: var(--primary); }
 .set-form-btns { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
 .set-form-btns .btn { flex: 1; min-width: 84px; }
+.set-chk { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); margin: 8px 0 2px; cursor: pointer; }
+.set-chk input { width: 16px; height: 16px; accent-color: var(--primary); flex: none; }
 .cloud-status { font-size: 12px; color: var(--primary-deep); margin: 10px 2px 0; min-height: 16px; }
 
 /* ============ 首页标题 + 统一展开详情 ============ */
