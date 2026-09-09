@@ -1,0 +1,44 @@
+/* =========================================================
+ * iPad 横屏版（平板，横屏使用）
+ * 复用 index.html 的 DOM 与 app.js；本文件仅覆盖布局，
+ * 把内容放宽并拆成网格，底部导航保持横排放大。
+ * ========================================================= */
+body.mode-ipad { font-size: 16px; }
+
+/* 整体放宽到平板横屏宽度（约 1024），左右留白 */
+.mode-ipad #app { max-width: 1000px; }
+.mode-ipad .topbar-inner { max-width: 1000px; }
+.mode-ipad .topbar h1 { font-size: 22px; }
+.mode-ipad .view { padding: 18px 20px 92px; }
+
+/* 底部导航：横排放大、更舒适 */
+.mode-ipad .tabbar {
+  max-width: 1000px;
+  padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
+}
+.mode-ipad .tab .tab-ico svg { width: 26px; height: 26px; }
+.mode-ipad .tab .tab-tx { font-size: 13px; }
+
+/* 首页统计放大 */
+.mode-ipad .stat { padding: 14px; }
+.mode-ipad .stat .num { font-size: 28px; }
+.mode-ipad .hero.compact { padding: 18px 22px; }
+.mode-ipad .hero.compact .ht-main { font-size: 22px; }
+
+/* 最近错题 → 2 列网格 */
+.mode-ipad .recent-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.mode-ipad .recent-grid .recent-item { margin-bottom: 0; }
+
+/* 笔记本每本内题目 → 2 列网格 */
+.mode-ipad .book { margin-bottom: 16px; }
+.mode-ipad .book-body { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; align-content: start; }
+.mode-ipad .book-body .item { margin-bottom: 0; }
+.mode-ipad .book-filter { grid-column: 1 / -1; }
+
+/* 复习卡 → 2 列网格 */
+.mode-ipad #revList { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+.mode-ipad #revList .rev-item { margin-bottom: 0; }
+
+/* 弹层在平板下更宽一些 */
+.mode-ipad .sheet { max-width: 520px; }
+.mode-ipad .crop-panel { max-width: 560px; }

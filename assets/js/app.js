@@ -1,0 +1,1108 @@
+/* =========================================================
+ * 错题本工作台 · 框架原型
+ * 移动端优先 / 清新淡雅 / 纯前端（localStorage）
+ * 本文件搭建四大模块的可点击框架，功能为骨架，供确认方向。
+ * ========================================================= */
+(function () {
+  'use strict';
+  const DB = window.DB;
+  const $ = (sel, root) => (root || document).querySelector(sel);
+  const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
+
+  const state = { view: 'home', subject: '全部', filter: {}, expanded: {} };
+
+  /* ---------------- 通用 UI ---------------- */
+  function toast(msg) {
+    const t = $('#toast'); t.textContent = msg; t.hidden = false;
+    clearTimeout(toast._t); toast._t = setTimeout(() => (t.hidden = true), 1600);
+  }
+  function openSheet(html) {
+    const mask = $('#sheet'), body = $('#sheetBody');
+    body.innerHTML = html;
+    mask.hidden = false;
+    body.querySelector('.close-x')?.addEventListener('click', closeSheet);
+    return body;
+  }
+  function closeSheet() { $('#sheet').hidden = true; $('#sheetBody').innerHTML = ''; }
+  $('#sheet').addEventListener('click', e => { if (e.target.id === 'sheet') closeSheet(); });
+
+  function subjTag(s) { return `<span class="subj-tag subj-${s}">${s}</span>`; }
+  function masteryTag(m) {
+    const mm = DB.MASTERY[m] || DB.MASTERY.unknown;
+    return `<span class="mastery ${mm.cls}">${mm.label}</span>`;
+  }
+  // 掌握状态展示：自动判定的已掌握也显示为“已掌握”
+  function masteryDisplay(e) {
+    return DB.isMastered(e) ? masteryTag('known') : masteryTag(e.mastery || 'unknown');
+  }
+  function kwName(id) { const k = DB.getKeywords().find(x => x.id === id); return k ? k.name : ''; }
+  function fmtDate(iso) {
+    const d = new Date(iso); const p = n => (n < 10 ? '0' : '') + n;
+    return `${d.getMonth() + 1}月${d.getDate()}日 ${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+  function fmtDue(ts) {
+    const d = new Date(ts); const p = n => (n < 10 ? '0' : '') + n;
+    return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+  }
+
+  /* ---------------- 路由 ---------------- */
+  const views = { home: renderHome, list: renderList, review: renderReview, mine: renderMine };
+  function setView(name) {
+    state.view = name;
+    $('#topbarTitle').textContent = $('.tab[data-view="' + name + '"]')?.dataset.label || '错题本';
+    $$('.tab[data-view]').forEach(t => t.classList.toggle('active', t.dataset.view === name));
+    (views[name] || renderHome)();
+    updateRevBadge();
+  }
+
+  // 底部「复习」角标：显示待复习数量
+  function updateRevBadge() {
+    const badge = document.getElementById('reviewBadge');
+    if (!badge) return;
+    const n = DB.dueReviews().length;
+    badge.textContent = n > 99 ? '99+' : n;
+    badge.hidden = n === 0;
+  }
+
+  // 打开页面时，若有到期复习则发浏览器通知（推送，需用户授权）
+  function notifyDueReviews() {
+    try {
+      if (!('Notification' in window)) return;
+      const n = DB.dueReviews().length;
+      if (!n) return;
+      const fire = () => new Notification('错题本提醒', { body: `你有 ${n} 道错题到时间复习啦 🌿` });
+      if (Notification.permission === 'granted') fire();
+      else if (Notification.permission !== 'denied') {
+        Notification.requestPermission().then(p => { if (p === 'granted') fire(); });
+      }
+    } catch (e) { /* 通知不可用则忽略 */ }
+  }
+  $('#fabAdd').addEventListener('click', () => openEntry());
+  $('#topbarSettings').addEventListener('click', openSettings);
+  $$('.tab[data-view]').forEach(t => t.addEventListener('click', () => setView(t.dataset.view)));
+
+  /* ---------------- 首页（紧凑：标题 + 三卡片 + 最近错题） ---------------- */
+  function renderHome() {
+    const errs = DB.getErrors();
+    const due = DB.dueReviews();
+    const revCount = due.length;
+    const known = errs.filter(e => DB.isMastered(e)).length;
+    const recent = errs.slice(0, 5); // getErrors 默认按创建时间倒序，取最近 5 道
+
+    $('#view').innerHTML = `
+      <div class="hero compact">
+        <div class="hero-title">
+          <span class="ht-main">错题本</span><span class="ht-sub">（今天也要好好加油哦！）</span>
+        </div>
+        <div class="stat-row">
+          <div class="stat"><div class="num">${errs.length}</div><div class="lab">错题总数</div></div>
+          <div class="stat"><div class="num">${revCount}</div><div class="lab">待复习</div></div>
+          <div class="stat"><div class="num">${known}</div><div class="lab">已掌握</div></div>
+        </div>
+      </div>
+      ${revCount ? `
+      <div class="review-pill">
+        <span class="rp-ico">🔔</span>
+        <div class="rp-tx">你有 <b>${revCount}</b> 道错题到点复习啦</div>
+        <button class="rp-go" id="goReview">去复习</button>
+      </div>` : ''}
+      <div class="card">
+        <p class="card-h">最近错题</p>
+        ${recent.length
+          ? `<div class="recent-grid">${recent.map(recentHTML).join('')}</div>`
+          : '<div class="empty">还没有错题，点下方 ＋ 录入吧</div>'}
+      </div>`;
+    $('#goReview')?.addEventListener('click', () => setView('review'));
+    bindRecent();
+  }
+  function fmtDateShort(iso) { const d = new Date(iso); return `${d.getMonth() + 1}月${d.getDate()}日`; }
+  // 统一展开详情块：知识点 + 题目全文 + 正确答案(点击查看) + 收录时间 + 做题记录
+  function errorExpandHTML(e) {
+    const isP = isDictError(e);
+    const qFull = isP ? (e.pinyin || e.text || '') : (e.text || '');
+    const ok = e.reviews.filter(r => r.correct).length;
+    const bad = e.reviews.length - ok;
+    return `
+      ${e.kpId ? expRow('知识点', kwName(e.kpId)) : ''}
+      ${e.srcId ? expRow('来源', kwName(e.srcId)) : ''}
+      <div class="exp-q">${qFull || (e.image ? '［含图片错题］' : '（未填写题干）')}</div>
+      ${e.image ? `<img class="exp-img" src="${e.image}" alt=""/>` : ''}
+      <div class="ans-wrap">
+        <button class="link-btn" type="button">显示正确答案</button>
+        <div class="exp-ans" hidden>${e.answer || '（未填写）'}</div>
+      </div>
+      <div class="exp-meta-row"><span>收录于 ${fmtDate(e.createdAt)}</span><span>做题 ${e.reviews.length} 次 · 正确 ${ok} 次 · 错误 ${bad} 次</span></div>`;
+  }
+  function expRow(k, v) {
+    return `<div class="exp-row"><span class="exp-k">${k}</span><span class="exp-v">${v}</span></div>`;
+  }
+  function recentHTML(e) {
+    const isP = isDictError(e);
+    const q = (isP ? (e.pinyin || e.text || '') : (e.text || '')).slice(0, 140)
+      || (e.image ? '［含图片错题］' : '（未填写题干）');
+    return `
+      <div class="recent-item" data-id="${e.id}">
+        <div class="recent-top">
+          ${subjTag(e.subject)}
+          ${e.kpId ? `<span class="tag">${kwName(e.kpId)}</span>` : ''}
+          <button class="item-edit" data-edit="${e.id}" title="编辑 / 删除" aria-label="编辑">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+          </button>
+        </div>
+        <div class="recent-body">
+          ${e.image ? `<img class="recent-thumb" src="${e.image}" alt=""/>` : ''}
+          <div class="recent-q">${q}</div>
+        </div>
+        <div class="recent-exp" hidden>${errorExpandHTML(e)}</div>
+      </div>`;
+  }
+  function bindRecent() {
+    $$('.recent-item').forEach(it => {
+      const exp = it.querySelector('.recent-exp');
+      if (exp) it.addEventListener('click', () => {
+        exp.hidden = !exp.hidden;
+        it.classList.toggle('open', !exp.hidden);
+      });
+      const edit = it.querySelector('.item-edit');
+      if (edit) edit.addEventListener('click', ev => { ev.stopPropagation(); openDetail(edit.dataset.edit); });
+      bindAnsToggle(it);
+    });
+  }
+  // 绑定「显示正确答案」按钮（点击展开/收起答案，不触发外层折叠）
+  function bindAnsToggle(scope) {
+    scope.querySelectorAll('.ans-wrap .link-btn').forEach(btn => {
+      btn.addEventListener('click', ev => {
+        ev.stopPropagation();
+        const box = btn.parentElement.querySelector('.exp-ans');
+        box.hidden = !box.hidden;
+        btn.textContent = box.hidden ? '显示正确答案' : '隐藏正确答案';
+      });
+    });
+  }
+
+  function isDictError(e) {
+    const kp = DB.getKeywords('kp').find(k => k.id === e.kpId);
+    return e.subject === '语文' && kp && kp.name === DB.CHINESE_DICT_KP;
+  }
+  // 题目展示块：文字（字词默写为拼音）在上，图片在下
+  function questionBlockHTML(e, isPinyin) {
+    const qText = isPinyin ? (e.pinyin || e.text || '') : (e.text || '');
+    let h = '';
+    if (qText) h += `<div class="detail-q">${qText}</div>`;
+    if (e.image) h += `<img class="detail-img" src="${e.image}"/>`;
+    return h || '<div class="detail-q">（无内容）</div>';
+  }
+  function itemHTML(e, withDel, expandable) {
+    const hasImg = !!e.image;
+    const isP = isDictError(e);
+    const q = (isP ? (e.pinyin || e.text || '') : (e.text || '')).slice(0, 60) || (hasImg ? '［含图片错题］' : '（未填写题干）');
+    return `
+      <div class="item" data-id="${e.id}">
+        ${withDel ? `<button class="item-edit" data-edit="${e.id}" title="编辑 / 删除" aria-label="编辑"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>` : ''}
+        <div class="item-top">${subjTag(e.subject)} ${masteryDisplay(e)}</div>
+        <div class="item-q">${q}</div>
+        ${expandable ? `<div class="item-exp" hidden>${errorExpandHTML(e)}</div>` : `
+        <div class="item-meta">
+          ${e.kpId ? `<span class="tag">知识点 · ${kwName(e.kpId)}</span>` : ''}
+          ${e.srcId ? `<span class="tag">来源 · ${kwName(e.srcId)}</span>` : ''}
+        </div>
+        <div class="item-when">录入于 ${fmtDate(e.createdAt)}</div>`}
+      </div>`;
+  }
+  function bindItems() {
+    $$('.item').forEach(it => {
+      const exp = it.querySelector('.item-exp');
+      if (exp) it.addEventListener('click', ev => {
+        if (ev.target.closest('.item-edit')) return;
+        exp.hidden = !exp.hidden;
+        it.classList.toggle('open', !exp.hidden);
+      });
+      bindAnsToggle(it);
+      const edit = it.querySelector('.item-edit');
+      if (edit) edit.addEventListener('click', ev => {
+        ev.stopPropagation();
+        openDetail(edit.dataset.edit);
+      });
+    });
+  }
+
+  /* ---------------- 设置（数据迁移 / 清空 / 云端同步预留） ---------------- */
+  function openSettings() {
+    const cloud = DB.getCloud();
+    const cloudStatus = cloud.lastSync
+      ? ('上次同步：' + fmtDate(cloud.lastSync) + (cloud.lastResult === 'up' ? '（上传）' : '（下载）'))
+      : '尚未同步';
+    const body = openSheet(`
+      <button class="close-x">✕</button>
+      <h3>设置</h3>
+      <div class="set-group">
+        <p class="set-title">数据迁移</p>
+        <button class="set-row" id="setExport">
+          <span class="set-ico">⬇</span><span class="set-label">导出数据</span>
+          <span class="set-val">存为 JSON 文件</span>
+        </button>
+        <button class="set-row" id="setImport">
+          <span class="set-ico">⬆</span><span class="set-label">导入数据</span>
+          <span class="set-val">从 JSON 恢复</span>
+        </button>
+        <input type="file" id="importFile" accept="application/json,.json" hidden />
+      </div>
+      <div class="set-group">
+        <p class="set-title">云端同步</p>
+        <p class="set-tip2">用 GitHub Gist 跨设备同步。Token 仅存本机，建议用「只勾 gist 权限」的专用 Token。</p>
+        <div class="set-form">
+          <label class="set-lbl">GitHub Token</label>
+          <input class="set-input" id="cloudToken" type="password" placeholder="ghp_ 开头" value="${esc(cloud.token || '')}" autocomplete="off" />
+          <label class="set-lbl">Gist ID</label>
+          <input class="set-input" id="cloudGist" type="text" placeholder="gist 地址里的那串 ID" value="${esc(cloud.gistId || '')}" />
+          <div class="set-form-btns">
+            <button class="btn small ghost" id="cloudSave">保存配置</button>
+            <button class="btn small" id="cloudUp">☁ 上传同步</button>
+            <button class="btn small ghost" id="cloudDown">⬇ 下载恢复</button>
+            <button class="btn small ghost" id="cloudTest">🔍 测试连接</button>
+          </div>
+          <p class="cloud-status" id="cloudStatus">${cloudStatus}</p>
+        </div>
+      </div>
+      <div class="set-group">
+        <p class="set-title">学科管理</p>
+        <div id="setSubjList"></div>
+        <button class="set-row" id="setSubjAdd">
+          <span class="set-ico">＋</span><span class="set-label">新增学科</span>
+          <span class="set-val">新建一个错题本</span>
+        </button>
+      </div>
+      <div class="set-group">
+        <p class="set-title">基础</p>
+        <button class="set-row" id="setDemo">
+          <span class="set-ico">🧪</span><span class="set-label">载入演示复习数据</span>
+          <span class="set-val">插入若干待复习示例（不影响现有数据）</span>
+        </button>
+        <button class="set-row danger" id="setClear">
+          <span class="set-ico">🗑</span><span class="set-label">一键清空数据</span>
+          <span class="set-val">清空全部错题与关键词</span>
+        </button>
+      </div>
+      <p class="set-tip">数据保存在本设备浏览器中。换手机 / 清缓存前，请先「导出数据」备份；未来云端同步上线后可直接跨设备同步。</p>`);
+
+    $('#setExport').addEventListener('click', () => {
+      try {
+        const data = DB.exportData();
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = '错题本数据_' + new Date().toISOString().slice(0, 10) + '.json';
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        toast('已导出数据文件 ✓');
+      } catch (err) { toast('导出失败'); }
+    });
+    $('#setImport').addEventListener('click', () => $('#importFile').click());
+    $('#importFile').addEventListener('change', e => {
+      const file = e.target.files[0]; if (!file) return;
+      const r = new FileReader();
+      r.onload = ev => {
+        try {
+          const data = JSON.parse(ev.target.result);
+          DB.importData(data);
+          closeSheet(); toast('数据已导入 ✓');
+          setView(state.view);
+        } catch (err) { toast('导入失败：' + (err.message || '文件格式错误')); }
+      };
+      r.readAsText(file);
+      e.target.value = '';
+    });
+    $('#setClear').addEventListener('click', () => {
+      if (confirm('确定清空全部错题、关键词与科目？此操作不可恢复。')) {
+        DB.clearAll(); closeSheet(); toast('已清空全部数据'); setView('home');
+      }
+    });
+    $('#setDemo').addEventListener('click', () => {
+      const n = DB.seedReviewDemo(true);
+      closeSheet();
+      toast('已载入 ' + n + ' 道演示错题（含几日前数据），去「复习」看看 ✓');
+      setView('review');
+    });
+
+    // 云端同步：保存配置 / 上传 / 下载
+    $('#cloudSave').addEventListener('click', () => {
+      DB.setCloud({ token: $('#cloudToken').value.trim(), gistId: $('#cloudGist').value.trim() });
+      toast('云端配置已保存 ✓');
+    });
+    $('#cloudUp').addEventListener('click', async () => {
+      DB.setCloud({ token: $('#cloudToken').value.trim(), gistId: $('#cloudGist').value.trim() }); // 先保存，确保用最新输入
+      const btn = $('#cloudUp'); btn.disabled = true;
+      try {
+        await DB.gistUpload();
+        const c = DB.getCloud();
+        $('#cloudStatus').textContent = '已上传 ✓ ' + fmtDate(c.lastSync);
+        toast('已上传到云端 ✓');
+      } catch (e) { toast('上传失败：' + e.message); }
+      finally { btn.disabled = false; }
+    });
+    $('#cloudDown').addEventListener('click', async () => {
+      DB.setCloud({ token: $('#cloudToken').value.trim(), gistId: $('#cloudGist').value.trim() }); // 先保存，确保用最新输入
+      const btn = $('#cloudDown'); btn.disabled = true;
+      try {
+        await DB.gistDownload();
+        const c = DB.getCloud();
+        $('#cloudStatus').textContent = '已下载恢复 ✓ ' + fmtDate(c.lastSync);
+        toast('已从云端恢复 ✓');
+        setView(state.view);
+      } catch (e) { toast('下载失败：' + e.message); }
+      finally { btn.disabled = false; }
+    });
+    $('#cloudTest').addEventListener('click', async () => {
+      // 先保存输入框，确保用最新填写的 Token / Gist ID 测试
+      DB.setCloud({ token: $('#cloudToken').value.trim(), gistId: $('#cloudGist').value.trim() });
+      const btn = $('#cloudTest'); btn.disabled = true;
+      try {
+        const res = await DB.gistTest();
+        $('#cloudStatus').textContent = '连接正常 ✓ 账号 @' + res.login + ' · ' + res.gist;
+        toast('连接正常 ✓ 账号 @' + res.login);
+      } catch (e) { toast('连接失败：' + e.message); }
+      finally { btn.disabled = false; }
+    });
+
+    // 学科管理：在设置内增 / 删 / 改，笔记本页实时同步
+    function renderSetSubjList() {
+      const el = document.getElementById('setSubjList'); if (!el) return;
+      const subs = DB.getSubjects();
+      el.innerHTML = subs.map(s => `
+        <div class="set-subj">
+          <span class="set-label" style="flex:1">${esc(s)}</span>
+          <span class="tag">${DB.getErrors({ subject: s }).length} 道</span>
+          <button class="opt" data-edit="${esc(s)}">改</button>
+          <button class="opt" data-del="${esc(s)}" style="color:var(--bad)">删</button>
+        </div>`).join('');
+      el.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => {
+        const old = b.dataset.edit, n = prompt('修改为：', old);
+        if (n && n.trim()) {
+          if (DB.renameSubject(old, n)) { toast('已改名 ✓'); renderSetSubjList(); if (state.view === 'list') renderList(); }
+          else toast('改名失败：名称已存在或无效');
+        }
+      }));
+      el.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => {
+        const s = b.dataset.del;
+        if (DB.getSubjects().length <= 1) { toast('至少保留一个学科'); return; }
+        if (confirm(`删除「${s}」？该科错题与关键词会一并清除。`)) {
+          DB.deleteSubject(s); renderSetSubjList(); if (state.view === 'list') renderList();
+        }
+      }));
+    }
+    $('#setSubjAdd').addEventListener('click', () => {
+      const n = prompt('输入新学科名称（如：物理）：'); if (n && n.trim()) {
+        if (DB.addSubject(n)) { renderSetSubjList(); if (state.view === 'list') renderList(); }
+        else toast('该学科已存在');
+      }
+    });
+    renderSetSubjList();
+  }
+
+  /* ---------------- 错题本（折叠错题本 + 预览/筛选） ---------------- */
+  function renderList() {
+    const subjects = DB.getSubjects();
+    const expanded = state.expanded || {};
+    const f = state.filter;
+    const hasFilter = !!(f.kpId || f.srcId || f.mastery || (state.subject && state.subject !== '全部'));
+    const total = DB.getErrors().length;
+    const allOpen = subjects.length > 0 && subjects.every(s => expanded[s]);
+
+    $('#view').innerHTML = `
+      <div class="btn-row" style="margin-bottom:12px">
+        <button class="btn ghost" id="openFilter">⚙ 筛选${filterLabel()}</button>
+        <button class="btn ghost" id="toggleAll">${allOpen ? '全部收起' : '全部展开'}</button>
+      </div>
+      <div class="btn-row" style="margin-bottom:12px">
+        <button class="btn ghost" id="exportPdf">📄 导出PDF（勾选题目）</button>
+      </div>
+      <p class="list-hint">点开任一错题本可预览内容 / 筛选本本错题 · 共 ${total} 道 · 点 ✕ 可删减</p>
+      ${subjects.map(s => {
+        const errsAll = DB.getErrors({ subject: s });
+        const errs = DB.getErrors(Object.assign({ subject: s }, hasFilter ? state.filter : {}));
+        const isOpen = !!expanded[s];
+        return `
+        <div class="book">
+          <div class="book-head" data-s="${s}">
+            ${subjTag(s)}
+            <span class="book-cnt">${errsAll.length} 道</span>
+            <span class="book-chev">${isOpen ? '▾' : '▸'}</span>
+          </div>
+          <div class="book-body" id="book-${s}" ${isOpen ? '' : 'hidden'}>
+            ${errs.length
+              ? errs.map(e => itemHTML(e, true, true)).join('')
+              : `<div class="book-empty">${hasFilter ? '该本无符合筛选的错题' : '本错题本还是空的，点 ＋ 录入吧'}</div>`}
+            ${errsAll.length ? `<button class="book-filter" data-s="${s}">⚙ 筛选本本内容</button>` : ''}
+          </div>
+        </div>`;
+      }).join('')}`;
+
+    $('#openFilter').addEventListener('click', () => openFilter());
+    $('#exportPdf').addEventListener('click', openExportSelect);
+    $('#toggleAll').addEventListener('click', () => {
+      const all = subjects.every(s => state.expanded[s]);
+      subjects.forEach(s => (state.expanded[s] = !all));
+      renderList();
+    });
+    $$('.book-head').forEach(h => h.addEventListener('click', () => {
+      const s = h.dataset.s; state.expanded[s] = !state.expanded[s];
+      const body = document.getElementById('book-' + s);
+      if (body) body.hidden = !state.expanded[s];
+      const chev = h.querySelector('.book-chev'); if (chev) chev.textContent = state.expanded[s] ? '▾' : '▸';
+    }));
+    $$('.book-filter').forEach(b => b.addEventListener('click', e => {
+      e.stopPropagation();
+      state.expanded[b.dataset.s] = true;
+      openFilter(b.dataset.s);
+    }));
+    bindItems();
+  }
+  function filterLabel() {
+    const f = state.filter; let n = 0;
+    if (state.subject && state.subject !== '全部') n++;
+    if (f.kpId) n++; if (f.srcId) n++; if (f.mastery) n++;
+    return n ? `（${n}）` : '';
+  }
+
+  /* ---------------- 筛选（可锁定某一错题本） ---------------- */
+  function openFilter(lockSubject) {
+    const f = state.filter;
+    const subjects = lockSubject ? [lockSubject] : ['全部', ...DB.getSubjects()];
+    const kpList = lockSubject ? DB.getKeywords('kp').filter(k => k.subject === lockSubject) : DB.getKeywords('kp');
+    const srcList = lockSubject ? DB.getKeywords('src').filter(k => k.subject === lockSubject) : DB.getKeywords('src');
+    const body = openSheet(`
+      <button class="close-x">✕</button>
+      <h3>${lockSubject ? '筛选「' + lockSubject + '」本内容' : '筛选错题'}</h3>
+      ${lockSubject ? '' : `<div class="field"><label>按学科</label><div class="kw-box" id="fSubj">
+        ${subjects.map(s => `<span class="kw ${state.subject === s ? 'active' : ''}" data-subj="${s}">${s}</span>`).join('')}
+      </div></div>`}
+      <div class="field"><label>按知识点${lockSubject ? '（' + lockSubject + '）' : ''}</label><div class="kw-box" id="fKp">
+        <span class="kw ${!f.kpId ? 'active' : ''}" data-kp="">不限</span>
+        ${kpList.map(k => `<span class="kw ${f.kpId === k.id ? 'active' : ''}" data-kp="${k.id}">${k.name}</span>`).join('')}
+      </div></div>
+      <div class="field"><label>按来源${lockSubject ? '（' + lockSubject + '）' : ''}</label><div class="kw-box" id="fSrc">
+        <span class="kw ${!f.srcId ? 'active' : ''}" data-src="">不限</span>
+        ${srcList.map(k => `<span class="kw ${f.srcId === k.id ? 'active' : ''}" data-src="${k.id}">${k.name}</span>`).join('')}
+      </div></div>
+      <div class="field"><label>按掌握情况</label><div class="kw-box" id="fM">
+        <span class="kw ${!f.mastery ? 'active' : ''}" data-m="">不限</span>
+        ${Object.values(DB.MASTERY).map(m => `<span class="kw ${f.mastery === m.key ? 'active' : ''}" data-m="${m.key}">${m.label}</span>`).join('')}
+      </div></div>
+      <div class="btn-row">
+        <button class="btn ghost" id="fReset">重置</button>
+        <button class="btn" id="fApply">应用</button>
+      </div>`);
+    if (!lockSubject) body.querySelectorAll('#fSubj .kw').forEach(x => x.addEventListener('click', () => {
+      body.querySelectorAll('#fSubj .kw').forEach(y => y.classList.remove('active'));
+      x.classList.add('active');
+    }));
+    body.querySelectorAll('#fKp .kw').forEach(x => x.addEventListener('click', () => {
+      body.querySelectorAll('#fKp .kw').forEach(y => y.classList.remove('active'));
+      x.classList.add('active');
+    }));
+    body.querySelectorAll('#fSrc .kw').forEach(x => x.addEventListener('click', () => {
+      body.querySelectorAll('#fSrc .kw').forEach(y => y.classList.remove('active'));
+      x.classList.add('active');
+    }));
+    body.querySelectorAll('#fM .kw').forEach(x => x.addEventListener('click', () => {
+      body.querySelectorAll('#fM .kw').forEach(y => y.classList.remove('active'));
+      x.classList.add('active');
+    }));
+    $('#fReset').addEventListener('click', () => {
+      state.subject = lockSubject || '全部'; state.filter = {};
+      if (lockSubject) state.expanded[lockSubject] = true;
+      closeSheet(); renderList();
+    });
+    $('#fApply').addEventListener('click', () => {
+      const subj = lockSubject || (body.querySelector('#fSubj .active')?.dataset.subj || '全部');
+      const kp = body.querySelector('#fKp .active')?.dataset.kp || '';
+      const src = body.querySelector('#fSrc .active')?.dataset.src || '';
+      const m = body.querySelector('#fM .active')?.dataset.m || '';
+      state.subject = subj;
+      state.filter = { kpId: kp || null, srcId: src || null, mastery: m || null };
+      if (lockSubject) state.expanded[lockSubject] = true;
+      closeSheet(); renderList();
+    });
+  }
+
+  /* ---------------- 录入错题 ---------------- */
+  function openEntry(err) {
+    const subjects = DB.getSubjects();
+    const isEdit = !!err;
+    const editId = err ? err.id : null;
+    const dictOf = e => e && e.subject === '语文'
+      && DB.getKeywords('kp').find(k => k.id === e.kpId)?.name === DB.CHINESE_DICT_KP;
+    // 录入 / 编辑两用：文字 + 图片 并存（每道题可填文字、并可从相册添加图片，图片可裁剪）
+    const form = {
+      subject: err ? err.subject : (subjects.includes('数学') ? '数学' : subjects[0]),
+      text: err ? (dictOf(err) ? (err.answer || err.text || '') : (err.text || '')) : '',
+      image: err ? (err.image || null) : null,
+      kpId: err ? (err.kpId || null) : null,
+      srcId: err ? (err.srcId || null) : null,
+      mastery: err ? (err.mastery || 'unknown') : 'unknown',
+      answer: err ? (err.answer || '') : '',
+      pinyin: err ? (err.pinyin || '') : '',
+    };
+
+    function kpOptions() {
+      const list = DB.getKeywords('kp').filter(k => k.subject === form.subject);
+      return `<span class="kw ${!form.kpId ? 'active' : ''}" data-kp="">不选</span>
+        ${list.map(k => `<span class="kw ${form.kpId === k.id ? 'active' : ''}" data-kp="${k.id}">${k.name}</span>`).join('')}
+        <span class="kw kw-add" id="addKp">＋ 新增知识点</span>`;
+    }
+    function srcOptions() {
+      const list = DB.getKeywords('src').filter(k => k.subject === form.subject);
+      return `<span class="kw ${!form.srcId ? 'active' : ''}" data-src="">不选</span>
+        ${list.map(k => `<span class="kw ${form.srcId === k.id ? 'active' : ''}" data-src="${k.id}">${k.name}</span>`).join('')}
+        <span class="kw kw-add" id="addSrc">＋ 新增来源</span>`;
+    }
+    function refresh() {
+      $('#entryKp').innerHTML = kpOptions();
+      $('#entrySrc').innerHTML = srcOptions();
+      bindKw();
+      // 语文字词默写 -> 中文转拼音题目，中文作为正确答案，隐藏"正确答案"输入框
+      const kp = DB.getKeywords('kp').find(k => k.id === form.kpId);
+      const isDict = form.subject === '语文' && kp && kp.name === DB.CHINESE_DICT_KP;
+      $('#pinyinWrap').style.display = isDict ? 'block' : 'none';
+      $('#entryAnsField').style.display = isDict ? 'none' : 'block';
+      $('#entryQLabel').textContent = isDict ? '字词默写内容（输入中文，将自动转为拼音题目）' : '题干 / 错题内容';
+      if (isDict) {
+        const py = DB.toPinyin(form.text);
+        if (py) { form.pinyin = py; $('#pinyinVal').textContent = py; }
+      } else {
+        form.pinyin = '';
+      }
+    }
+    function bindKw() {
+      $$('#entryKp .kw[data-kp]').forEach(x => x.addEventListener('click', () => { form.kpId = x.dataset.kp || null; refresh(); }));
+      $$('#entrySrc .kw[data-src]').forEach(x => x.addEventListener('click', () => { form.srcId = x.dataset.src || null; refresh(); }));
+      $('#addKp')?.addEventListener('click', () => {
+        const n = prompt('输入新知识点名称：'); if (n && n.trim()) { const k = DB.addKeyword('kp', n, form.subject); form.kpId = k.id; refresh(); }
+      });
+      $('#addSrc')?.addEventListener('click', () => {
+        const n = prompt('输入新来源名称（如：单元测试/作业）：'); if (n && n.trim()) { const k = DB.addKeyword('src', n, form.subject); form.srcId = k.id; refresh(); }
+      });
+    }
+
+    const body = openSheet(`
+      <button class="close-x">✕</button>
+      <h3>${isEdit ? '编辑错题' : '录入错题'}</h3>
+      <div class="field"><label>科目（自动归入该科错题本）</label>
+        <div class="seg" id="entrySubj">
+          ${subjects.map(s => `<button class="chip ${s === form.subject ? 'active' : ''}" data-s="${s}">${s}</button>`).join('')}
+        </div>
+      </div>
+      <div class="field" id="entryQField">
+        <label id="entryQLabel">题干 / 错题内容</label>
+        <textarea class="textarea" id="entryText" placeholder="输入或粘贴题目内容…">${form.text}</textarea>
+      </div>
+      <div class="field"><label>图片（从相册添加，可裁剪）</label>
+        <button class="btn ghost" id="imgDrop" style="width:100%">🖼 从相册添加图片</button>
+        <input type="file" id="imgInput" accept="image/*" hidden />
+        <div id="imgPreview"></div>
+      </div>
+      <div class="field" id="pinyinWrap" style="display:none">
+        <label>题目将自动转为拼音（复习时显示拼音，中文作正确答案不展示）</label>
+        <div class="pinyin-line" id="pinyinVal">${form.pinyin}</div>
+      </div>
+      <div class="field"><label>知识点（${form.subject}）</label><div class="kw-box" id="entryKp">${kpOptions()}</div></div>
+      <div class="field"><label>来源（${form.subject}）</label><div class="kw-box" id="entrySrc">${srcOptions()}</div></div>
+      <div class="field"><label>掌握情况</label>
+        <div class="opt-row" id="entryMastery">
+          ${Object.values(DB.MASTERY).map(m => `<span class="opt ${form.mastery === m.key ? 'active' : ''}" data-m="${m.key}">${m.label}</span>`).join('')}
+        </div>
+      </div>
+      <div class="field" id="entryAnsField">
+        <label>正确答案</label>
+        <textarea class="textarea" id="entryAnswer" placeholder="填写正确答案与解析…">${form.answer}</textarea>
+      </div>
+      <button class="btn" id="saveErr">${isEdit ? '保存修改' : '保存错题'}</button>`);
+
+    bindKw();
+
+    // 科目切换：重置该科专属的知识点/来源
+    $$('#entrySubj .chip').forEach(c => c.addEventListener('click', () => {
+      form.subject = c.dataset.s;
+      $$('#entrySubj .chip').forEach(x => x.classList.toggle('active', x === c));
+      form.kpId = null; form.srcId = null;
+      refresh();
+    }));
+    $('#entryText').addEventListener('input', e => { form.text = e.target.value; refresh(); });
+    $('#entryAnswer').addEventListener('input', e => (form.answer = e.target.value));
+    $$('#entryMastery .opt').forEach(o => o.addEventListener('click', () => {
+      form.mastery = o.dataset.m;
+      $$('#entryMastery .opt').forEach(x => x.classList.toggle('active', x === o));
+    }));
+    // 渲染图片预览 + 裁剪按钮（图片可矩形裁剪，不做识别）
+    function renderImgPreview() {
+      if (!form.image) { $('#imgPreview').innerHTML = ''; return; }
+      $('#imgPreview').innerHTML = `
+        <div class="img-prev"><img src="${form.image}" />
+          <div class="img-tools">
+            <button class="crop-btn" id="cropBtn">✂ 裁剪</button>
+          </div>
+          <p class="img-note">拖动选框选择要保留的部分，可移动或缩放，裁掉多余区域。</p>
+        </div>`;
+      $('#cropBtn').addEventListener('click', () => openCropper(form.image, cropped => {
+        form.image = cropped; renderImgPreview(); refresh(); toast('已裁剪 ✓');
+      }));
+    }
+    // 从相册添加图片
+    $('#imgDrop').addEventListener('click', () => $('#imgInput').click());
+    $('#imgInput').addEventListener('change', e => {
+      const file = e.target.files[0]; if (!file) return;
+      const r = new FileReader();
+      r.onload = ev => { form.image = ev.target.result; renderImgPreview(); refresh(); };
+      r.readAsDataURL(file);
+    });
+    // 保存：文字 + 图片 并存；字词默写则将中文转为拼音题目、中文存为正确答案
+    $('#saveErr').addEventListener('click', () => {
+      const hasText = !!form.text.trim();
+      const hasImg = !!form.image;
+      if (!hasText && !hasImg) { toast('请填写文字或从相册添加图片'); return; }
+      const isDict = form.subject === '语文'
+        && DB.getKeywords('kp').find(k => k.id === form.kpId)?.name === DB.CHINESE_DICT_KP;
+      const mode = (hasText && hasImg) ? 'mixed' : hasImg ? 'image' : 'text';
+      let payload = {
+        subject: form.subject, mode,
+        text: form.text, image: form.image,
+        kpId: form.kpId, srcId: form.srcId, mastery: form.mastery, answer: form.answer,
+        pinyin: '',
+      };
+      if (isDict) {
+        const py = DB.toPinyin(form.text);
+        payload.text = py || form.text;     // 题目显示为拼音
+        payload.answer = form.text;        // 中文作为正确答案（不展示）
+        payload.pinyin = py;
+      }
+      if (isEdit) {
+        DB.updateError(editId, payload);
+        toast('已保存修改 ✓'); closeSheet();
+        if (state.view === 'list') renderList();
+        else if (state.view === 'review') renderReview();
+        else renderHome();
+      } else {
+        DB.addError(payload);
+        toast('已保存到「' + form.subject + '」错题本 ✓'); closeSheet();
+        state.subject = form.subject;            // 自动跳到对应学科错题本
+        state.expanded[form.subject] = true;    // 并展开该错题本
+        setView('list');
+      }
+    });
+    refresh();
+    renderImgPreview();
+  }
+
+  /* ---------------- 错题详情 ---------------- */
+  function openDetail(id) {
+    const e = DB.getError(id); if (!e) return;
+    const isPinyin = isDictError(e);
+    const body = openSheet(`
+      <button class="close-x">✕</button>
+      <h3>${subjTag(e.subject)} 错题详情</h3>
+      ${questionBlockHTML(e, isPinyin)}
+      <div class="ans-wrap" style="margin-top:10px">
+        <button class="btn ghost" id="showAnsBtn">显示正确答案</button>
+        <div class="detail-a" id="ansBox" style="display:none">${e.answer || '（未填写）'}</div>
+      </div>
+      <div class="item-meta">
+        ${e.kpId ? `<span class="tag">知识点 · ${kwName(e.kpId)}</span>` : ''}
+        ${e.srcId ? `<span class="tag">来源 · ${kwName(e.srcId)}</span>` : ''}
+        ${masteryDisplay(e)}
+      </div>
+      <div class="item-when" style="margin-top:8px">
+        ${DB.isMastered(e) ? '🟢 已掌握 · 已停止推送' : '🔔 下次推送：' + fmtDue(DB.nextDueDate(e))}
+      </div>
+      ${e.reviews.length ? `<div class="records"><p class="card-h" style="margin-top:14px">复习记录（已答对 ${e.reviews.filter(r => r.correct).length} / 共 ${e.reviews.length} 次）</p>
+        ${e.reviews.map(r => `<div class="rec"><span class="${r.correct ? 'r-ok' : 'r-bad'}">${r.correct ? '✓ 答对' : '✗ 答错'}</span>
+        <span>${fmtDate(r.date)}</span></div>`).join('')}</div>` : ''}
+      <div class="btn-row" style="margin-top:16px">
+        <button class="btn ghost" id="delErr">删除</button>
+        <button class="btn" id="editErr">编辑</button>
+      </div>`);
+    $('#showAnsBtn').addEventListener('click', () => {
+      $('#ansBox').style.display = 'block';
+      $('#showAnsBtn').style.display = 'none';
+    });
+    $('#delErr').addEventListener('click', () => {
+      if (confirm('确定删除这道错题？')) { DB.deleteError(id); closeSheet(); toast('已删除'); setView(state.view); }
+    });
+    $('#editErr').addEventListener('click', () => { closeSheet(); openEntry(e); });
+  }
+  // 待复习推送标签：应复习日期 / 逾期天数
+  function dueLabel(e) {
+    const due = DB.nextDueDate(e);
+    const diff = Date.now() - due;
+    if (diff <= 0) return '应于 ' + fmtDue(due) + ' 复习';
+    const days = Math.floor(diff / 86400000);
+    return '已逾期 ' + (days < 1 ? '今天' : days + ' 天') + ' · 建议尽快复习';
+  }
+
+  /* ---------------- 复习（间隔推送） ---------------- */
+  function renderReview() {
+    const due = DB.dueReviews();
+    const mastered = DB.getErrors().filter(e => DB.isMastered(e));
+    $('#view').innerHTML = `
+      <div class="card" style="padding:14px 16px">
+        <p class="card-h" style="margin-bottom:6px">复习推送计划</p>
+        <p style="font-size:12.5px;color:var(--ink-2);margin:0;line-height:1.6">系统按 <b>+2天 / +7天 / +30天 / 之后每30天</b> 推送复习；<b>连续答对 3 次</b> 或 <b>累计答对 5 次</b> 即标记已掌握并停止推送。</p>
+      </div>
+      ${due.length === 0
+        ? '<div class="empty"><span class="em-ico">🌱</span>今天没有需要复习的错题，继续保持！</div>'
+        : `
+        <div class="rev-toolbar">
+          <div class="rev-count">🔔 今日待复习 <b>${due.length}</b> 道</div>
+          <button class="btn small" id="toGrade">批改</button>
+        </div>
+        <p class="rev-tip">以下为全部待复习内容（已展开）；自测后可点右上「批改」逐题勾选对错并记录。</p>
+        <div id="revList">
+          ${due.map(e => `
+            <div class="rev-item">
+              <div class="rev-due">${dueLabel(e)}</div>
+              <div class="rev-card">
+                <div class="item-top">${subjTag(e.subject)} ${masteryDisplay(e)}
+                  <button class="item-edit" data-edit="${e.id}" title="编辑 / 删除" aria-label="编辑">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                  </button>
+                </div>
+                ${errorExpandHTML(e)}
+              </div>
+            </div>`).join('')}
+        </div>`}
+      ${mastered.length ? `<div class="card" style="margin-top:14px;padding:14px 16px">
+        <p class="card-h" style="margin-bottom:6px">已掌握（已停止推送）</p>
+        <p style="font-size:12.5px;color:var(--ink-2);margin:0;line-height:1.6">共 ${mastered.length} 道已实现稳定掌握，不再推送；可在错题本中按需删减。</p>
+        <div class="mastered-list">
+          ${mastered.slice(0, 8).map(e => `<span class="tag">${esc(e.subject)} · ${esc(kwName(e.kpId)) || '错题'}</span>`).join('')}
+        </div>
+      </div>` : ''}
+    `;
+    bindAnsToggle($('#revList') || document);
+    $$('#revList .item-edit').forEach(b => b.addEventListener('click', ev => {
+      ev.stopPropagation(); openDetail(b.dataset.edit);
+    }));
+    $('#toGrade')?.addEventListener('click', renderGrade);
+    updateRevBadge();
+  }
+
+  // 批改模式：题目折叠展示、答案全部显示，逐题勾选「对 / 错」后统一记录
+  function renderGrade() {
+    const due = DB.dueReviews();
+    if (!due.length) { renderReview(); return; }
+    $('#view').innerHTML = `
+      <div class="grade-bar">
+        <button class="btn ghost small" id="gradeBack">‹ 返回</button>
+        <span class="grade-title">批改模式 · 共 ${due.length} 道</span>
+        <button class="btn small" id="gradeSave">保存批改</button>
+      </div>
+      <p class="grade-tip">题目以折叠形式展示，答案已全部显示；逐题勾选「对 / 错」，完成后点「保存批改」记录。</p>
+      <div id="gradeList">
+        ${due.map(gradeItemHTML).join('')}
+      </div>`;
+    const sel = {};
+    $$('#gradeList .grade-item').forEach(card => {
+      const id = card.dataset.id;
+      card.querySelectorAll('.pick').forEach(b => b.addEventListener('click', () => {
+        const v = b.dataset.v === 'true';
+        if (sel[id] === v) { delete sel[id]; b.classList.remove('on'); return; }
+        sel[id] = v;
+        card.querySelectorAll('.pick').forEach(x => x.classList.remove('on'));
+        b.classList.add('on');
+      }));
+    });
+    $('#gradeBack').addEventListener('click', renderReview);
+    $('#gradeSave').addEventListener('click', () => {
+      let ok = 0, bad = 0, none = 0;
+      due.forEach(e => {
+        if (!(e.id in sel)) { none++; return; }
+        DB.recordReview(e.id, sel[e.id]);
+        if (sel[e.id]) ok++; else bad++;
+      });
+      renderReview();
+      toast(`已记录 ${ok + bad} 道（对 ${ok} / 错 ${bad}${none ? ` · 跳过 ${none}` : ''}）`);
+    });
+  }
+  // 单题批改卡片：折叠题面 + 显示答案 + 对/错选择
+  function gradeItemHTML(e) {
+    const isP = isDictError(e);
+    const q = (isP ? (e.pinyin || e.text || '') : (e.text || '')).slice(0, 120)
+      || (e.image ? '［含图片错题］' : '（未填写题干）');
+    return `
+      <div class="grade-item" data-id="${e.id}">
+        <div class="grade-top">${subjTag(e.subject)}${e.kpId ? `<span class="tag">${kwName(e.kpId)}</span>` : ''}${e.srcId ? `<span class="tag">${kwName(e.srcId)}</span>` : ''}</div>
+        <div class="grade-q">${q}</div>
+        ${e.image ? `<img class="grade-img" src="${e.image}" alt=""/>` : ''}
+        <div class="grade-ans"><span class="ga-k">答案：</span>${e.answer || '（未填写答案）'}</div>
+        <div class="grade-pick">
+          <button class="pick ok" type="button" data-v="true">✓ 对</button>
+          <button class="pick bad" type="button" data-v="false">✗ 错</button>
+        </div>
+      </div>`;
+  }
+  function esc(s) { return (s || '').replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c])); }
+
+  /* ---------------- 我的 ---------------- */
+  function renderMine() {
+    const kps = DB.getKeywords('kp').length, srcs = DB.getKeywords('src').length;
+    const subs = DB.getSubjects().length;
+    $('#view').innerHTML = `
+      <div class="card" style="text-align:center;padding:22px">
+        <div style="font-size:40px">🌿</div>
+        <p style="margin:6px 0 0;font-weight:700">我的错题本</p>
+        <p style="margin:2px 0 0;color:var(--ink-2);font-size:13px">数据保存在本设备，可按学科管理错题本与关键词</p>
+      </div>
+      <div class="menu">
+        <div class="row" id="mKp"><span class="mi">🏷</span><span class="mt">知识点管理</span><span class="mr">${kps} 个 ›</span></div>
+        <div class="row" id="mSrc"><span class="mi">📌</span><span class="mt">来源管理</span><span class="mr">${srcs} 个 ›</span></div>
+        <div class="row" id="mFilter"><span class="mi">⚙</span><span class="mt">专项筛选巩固</span><span class="mr">›</span></div>
+        <div class="row" id="mStat"><span class="mi">📊</span><span class="mt">掌握情况统计</span><span class="mr">›</span></div>
+      </div>`;
+    $('#mKp').addEventListener('click', () => openKwManage('kp'));
+    $('#mSrc').addEventListener('click', () => openKwManage('src'));
+    $('#mFilter').addEventListener('click', () => { state.filter = {}; setView('list'); openFilter(); });
+    $('#mStat').addEventListener('click', openStat);
+  }
+
+  function openKwManage(type) {
+    const subjects = DB.getSubjects();
+    let sel = subjects[0];
+    function listHTML() {
+      const list = DB.getKeywords(type).filter(k => k.subject === sel);
+      return list.length ? list.map(k => `
+        <div class="item" style="display:flex;align-items:center;gap:10px;cursor:default">
+          <div style="flex:1">${k.name}</div>
+          <button class="opt" data-edit="${k.id}">改</button>
+          <button class="opt" data-del="${k.id}" style="color:var(--bad)">删</button>
+        </div>`).join('') : '<div class="empty">该科目下暂无，点击下方新增</div>';
+    }
+    function sheetHTML() {
+      return `
+        <button class="close-x">✕</button>
+        <h3>${type === 'kp' ? '知识点' : '来源'}管理</h3>
+        <div class="seg" id="kwSubj">
+          ${subjects.map(s => `<button class="chip ${s === sel ? 'active' : ''}" data-s="${s}">${s}</button>`).join('')}
+        </div>
+        <div id="kwList" style="margin-top:8px">${listHTML()}</div>
+        <button class="btn" id="kwAdd" style="margin-top:12px">＋ 新增${type === 'kp' ? '知识点' : '来源'}（${sel}）</button>`;
+    }
+    const body = openSheet(sheetHTML());
+    function rebind() {
+      body.innerHTML = sheetHTML();
+      body.querySelector('.close-x').addEventListener('click', closeSheet);
+      body.querySelectorAll('#kwSubj .chip').forEach(c => c.addEventListener('click', () => { sel = c.dataset.s; rebind(); }));
+      body.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => {
+        const k = DB.getKeywords(type).find(x => x.id === b.dataset.edit);
+        const n = prompt('修改为：', k.name); if (n && n.trim()) { DB.updateKeyword(k.id, n); rebind(); }
+      }));
+      body.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => {
+        if (confirm('删除该' + (type === 'kp' ? '知识点' : '来源') + '？相关错题的对应标签会清空。')) { DB.deleteKeyword(b.dataset.del); rebind(); }
+      }));
+      body.querySelector('#kwAdd').addEventListener('click', () => {
+        const n = prompt('输入名称：'); if (n && n.trim()) { DB.addKeyword(type, n, sel); rebind(); }
+      });
+    }
+    rebind();
+  }
+
+  function openStat() {
+    const errs = DB.getErrors();
+    const subjects = DB.getSubjects();
+    const bySubj = {}; subjects.forEach(s => bySubj[s] = errs.filter(e => e.subject === s).length);
+    const known = errs.filter(e => e.mastery === 'known').length;
+    const rate = errs.length ? Math.round(known / errs.length * 100) : 0;
+    openSheet(`
+      <button class="close-x">✕</button>
+      <h3>掌握情况统计</h3>
+      <div class="stat-row">
+        <div class="stat"><div class="num">${errs.length}</div><div class="lab">总错题</div></div>
+        <div class="stat"><div class="num">${known}</div><div class="lab">已掌握</div></div>
+        <div class="stat"><div class="num">${rate}%</div><div class="lab">掌握率</div></div>
+      </div>
+      <div class="card" style="margin-top:16px">
+        <p class="card-h">各科分布</p>
+        ${subjects.map(s => `<div style="display:flex;align-items:center;gap:10px;margin:8px 0">
+          <span style="width:48px">${s}</span>
+          <div style="flex:1;height:10px;background:var(--surface-2);border-radius:6px;overflow:hidden">
+            <div style="height:100%;width:${errs.length ? bySubj[s] / errs.length * 100 : 0}%;background:var(--primary)"></div></div>
+          <span style="width:30px;text-align:right;color:var(--ink-2)">${bySubj[s]}</span>
+        </div>`).join('')}
+      </div>`);
+  }
+
+  /* ---------------- 图片裁剪（矩形框，可拖动/缩放） ---------------- */
+  function openCropper(src, cb) {
+    const mask = $('#cropper'), panel = $('#cropPanel');
+    panel.innerHTML = `
+      <button class="close-x" id="cropClose">✕</button>
+      <h3>裁剪图片</h3>
+      <p class="crop-tip">拖动选框选择要保留的区域，可移动或缩放，裁掉多余部分。</p>
+      <div class="crop-stage" id="cropStage">
+        <img id="cropImg" src="${src}" />
+        <div class="crop-rect" id="cropRect">
+          <span class="rh rh-nw" data-h="nw"></span>
+          <span class="rh rh-ne" data-h="ne"></span>
+          <span class="rh rh-sw" data-h="sw"></span>
+          <span class="rh rh-se" data-h="se"></span>
+        </div>
+      </div>
+      <div class="btn-row" style="margin-top:14px">
+        <button class="btn ghost" id="cropReset">重置</button>
+        <button class="btn" id="cropOk">确定裁剪</button>
+      </div>`;
+    mask.hidden = false;
+    const img = $('#cropImg'), stage = $('#cropStage'), rect = $('#cropRect');
+    let natW = 0, natH = 0;
+
+    function initBox() {
+      const iw = img.clientWidth, ih = img.clientHeight;
+      if (!iw || !ih) return;
+      const w = iw * 0.8, h = ih * 0.8;
+      rect.style.left = (iw - w) / 2 + 'px';
+      rect.style.top = (ih - h) / 2 + 'px';
+      rect.style.width = w + 'px';
+      rect.style.height = h + 'px';
+    }
+    if (img.complete) setTimeout(initBox, 0);
+    img.onload = initBox;
+
+    let drag = null;
+    function onDown(e, mode) {
+      e.preventDefault(); e.stopPropagation();
+      drag = { mode, sx: e.clientX, sy: e.clientY, o: { l: rect.offsetLeft, t: rect.offsetTop, w: rect.offsetWidth, h: rect.offsetHeight } };
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+    }
+    function onMove(e) {
+      if (!drag) return;
+      const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
+      const iw = img.clientWidth, ih = img.clientHeight, MIN = 30;
+      let l = drag.o.l, t = drag.o.t, w = drag.o.w, h = drag.o.h;
+      const m = drag.mode;
+      if (m === 'move') { l += dx; t += dy; }
+      else {
+        if (m.includes('e')) w = drag.o.w + dx;
+        if (m.includes('w')) { w = drag.o.w - dx; l = drag.o.l + (drag.o.w - w); }
+        if (m.includes('s')) h = drag.o.h + dy;
+        if (m.includes('n')) { h = drag.o.h - dy; t = drag.o.t + (drag.o.h - h); }
+      }
+      w = Math.max(MIN, w); h = Math.max(MIN, h);
+      if (l < 0) { w += l; l = 0; }
+      if (t < 0) { h += t; t = 0; }
+      if (l + w > iw) w = iw - l;
+      if (t + h > ih) h = ih - t;
+      w = Math.max(MIN, w); h = Math.max(MIN, h);
+      rect.style.left = l + 'px'; rect.style.top = t + 'px';
+      rect.style.width = w + 'px'; rect.style.height = h + 'px';
+    }
+    function onUp() { drag = null; window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); }
+    rect.addEventListener('pointerdown', e => onDown(e, 'move'));
+    $$('.rh', rect).forEach(h => h.addEventListener('pointerdown', e => onDown(e, h.dataset.h)));
+
+    $('#cropReset').addEventListener('click', initBox);
+    $('#cropClose').addEventListener('click', () => { mask.hidden = true; panel.innerHTML = ''; });
+    $('#cropOk').addEventListener('click', () => {
+      const iw = img.clientWidth, ih = img.clientHeight;
+      if (!iw || !ih) { toast('图片还在加载，请稍候再点确定'); return; }
+      // 点击时实时读取自然尺寸（避免图片未加载完导致 0 宽高）
+      const nW = img.naturalWidth || natW, nH = img.naturalHeight || natH;
+      const scale = (nW && nH) ? nW / iw : 1; // 显示坐标 -> 原始分辨率
+      const sx = rect.offsetLeft * scale;
+      const sy = rect.offsetTop * scale;
+      let sw = rect.offsetWidth * scale;
+      let sh = rect.offsetHeight * scale;
+      if (sw <= 0 || sh <= 0) { toast('裁剪区域无效，请重新调整选框'); return; }
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(sw)); c.height = Math.max(1, Math.round(sh));
+      const ctx = c.getContext('2d');
+      try {
+        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, c.width, c.height);
+      } catch (err) {
+        toast('裁剪失败，请重试'); return;
+      }
+      mask.hidden = true; panel.innerHTML = '';
+      cb(c.toDataURL('image/jpeg', 0.92));
+    });
+    const setNat = () => { natW = img.naturalWidth; natH = img.naturalHeight; };
+    if (img.complete) setNat(); img.onload = () => { setNat(); initBox(); };
+  }
+
+  /* ---------------- 导出 PDF（先筛选勾选，再生成 A4） ---------------- */
+  // 语文、英语不预留作答区域，其余科目预留
+  function needWrite(e) { return e.subject !== '语文' && e.subject !== '英语'; }
+
+  // 第一步：在当前筛选结果中勾选要导出的题目
+  function openExportSelect() {
+    const list = DB.getErrors(Object.assign(
+      {}, state.subject !== '全部' ? { subject: state.subject } : {}, state.filter
+    ));
+    if (!list.length) { toast('当前筛选没有可导出的错题'); return; }
+    const body = openSheet(`
+      <button class="close-x">✕</button>
+      <h3>选择要导出的错题</h3>
+      <p style="font-size:12px;color:var(--ink-2);margin:-4px 0 12px">已按当前筛选列出共 ${list.length} 道，勾选需要的题目后导出为 A4 PDF（默认全选）。</p>
+      <div class="btn-row" style="margin-bottom:10px">
+        <button class="btn ghost" id="expAll">全选</button>
+        <button class="btn ghost" id="expNone">全不选</button>
+      </div>
+      <div id="expList" style="max-height:46vh;overflow:auto">
+        ${list.map(e => {
+          const q = (isDictError(e) ? (e.pinyin || e.text || '') : (e.text || '')).slice(0, 40)
+            || (e.image ? '［含图片错题］' : '（未填写题干）');
+          return `
+          <label class="exp-row">
+            <input type="checkbox" class="exp-chk" data-id="${e.id}" checked/>
+            <span class="exp-info">${subjTag(e.subject)}<span class="exp-q">${q}</span></span>
+          </label>`;
+        }).join('')}
+      </div>
+      <button class="btn" id="expGo" style="margin-top:14px">导出选中（<span id="expCnt">${list.length}</span>）</button>`);
+    const syncCnt = () => { $('#expCnt').textContent = body.querySelectorAll('.exp-chk:checked').length; };
+    body.querySelectorAll('.exp-chk').forEach(c => c.addEventListener('change', syncCnt));
+    $('#expAll').addEventListener('click', () => { body.querySelectorAll('.exp-chk').forEach(c => (c.checked = true)); syncCnt(); });
+    $('#expNone').addEventListener('click', () => { body.querySelectorAll('.exp-chk').forEach(c => (c.checked = false)); syncCnt(); });
+    $('#expGo').addEventListener('click', () => {
+      const ids = Array.from(body.querySelectorAll('.exp-chk:checked')).map(c => c.dataset.id);
+      if (!ids.length) { toast('请至少勾选一道题'); return; }
+      const sel = list.filter(e => ids.includes(e.id));
+      closeSheet();
+      exportPDF(sel);
+    });
+  }
+
+  // 第二步：生成 A4 打印区（语文/英语不预留作答位；基本 2 题/页，长题 1 题/页）
+  function exportPDF(list) {
+    if (!list.length) { toast('没有可导出的错题'); return; }
+    const pf = $('#printArea');
+    pf.innerHTML = `
+      <div class="pf-doc">
+        <div class="pf-head">
+          <h1 class="pf-title">错题练习卷</h1>
+          <p class="pf-sub">共 ${list.length} 道 · 生成于 ${new Date().toLocaleString('zh-CN')}</p>
+        </div>
+        ${list.map((e, i) => {
+          const isP = isDictError(e);
+          const q = isP ? (e.pinyin || e.text || '') : (e.text || '');
+          const reserve = needWrite(e);
+          return `
+          <div class="pf-item">
+            <div class="pf-meta">
+              <span class="pf-no">第 ${i + 1} 题</span>
+              ${subjTag(e.subject)}
+              ${e.kpId ? `<span class="tag">知识点 · ${kwName(e.kpId)}</span>` : ''}
+              ${e.srcId ? `<span class="tag">来源 · ${kwName(e.srcId)}</span>` : ''}
+            </div>
+            ${q ? `<div class="pf-q">${q}</div>` : ''}
+            ${e.image ? `<img class="pf-img" src="${e.image}"/>` : ''}
+            ${reserve ? `<div class="pf-write"><span>作答区域</span></div>` : ''}
+          </div>`;
+        }).join('')}
+      </div>`;
+    // 触发浏览器打印 / 另存为 PDF（A4 样式由 @media print 控制）
+    setTimeout(() => window.print(), 60);
+  }
+
+  /* ---------------- 启动 ---------------- */
+  DB.seedIfEmpty();
+  setView('home');
+  notifyDueReviews();
+})();
