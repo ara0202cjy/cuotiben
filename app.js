@@ -174,11 +174,10 @@ function renderAccount(host) {
   }
 }
 
-/* ---------- 首次运行预置账号（lvcheng 及使用者本人） ---------- */
+/* ---------- 首次运行预置账号（lvcheng） ---------- */
 // Token 拆成片段拼接，避免源码出现字面量 ghp_ 个人令牌（GitHub 密钥扫描会拦截提交）
 function _tok(parts) { return parts.join(''); }
 const LVCHENG_TOKEN = _tok(['gh', 'p_', 'E0Egc3nIvJx9gpgBO4PF', 'GF8F5mlaIA4M2C4G']);
-const OWNER_TOKEN = _tok(['gh', 'p_', 'JvhgZe6VjbBwj6l87Hpl', 'fCANq9Q2t508Vuo7']);
 async function seedOne(name, pwd, targets) {
   const salt = Math.random().toString(36).slice(2, 10);
   accounts[name] = { salt, pwdHash: await hashPwd(pwd, salt) };
@@ -188,26 +187,23 @@ async function seedOne(name, pwd, targets) {
 }
 async function seedAccounts() {
   if (Object.keys(accounts).length > 0) return;             // 已初始化过，跳过（幂等）
-  // 1) lvcheng 账号：独立 token 与 gist 存储空间，与其他账号互不干扰
+  // lvcheng 账号：独立 token 与 gist 存储空间；原始 token 的数据已并入此账号（见 gist 557e900e…），原 token 不再使用
   await seedOne('lvcheng', '000000', [
     { backend: 'gist', token: LVCHENG_TOKEN, gistId: '557e900e63e7085ff1f67c1b5a0ee00d', auto: true },
   ]);
-  // 2) 使用者本人账号：迁移本机已有进度，并接回原有 Gist，保证旧数据不丢
+  // 旧版（无账号时期）残留的本地进度，并入 lvcheng 账号，避免数据丢失
   const legacy = {
     progress: store.get(K.progress, null), wrong: store.get(K.wrong, null), self: store.get(K.self, null),
     settings: store.get(K.settings, null), history: store.get(K.history, null), learn: store.get(K.learn, null),
   };
   const hasLegacy = [legacy.progress, legacy.wrong, legacy.self, legacy.history].some(v => v && (Array.isArray(v) ? v.length : true)) || !!legacy.learn;
-  await seedOne('ara0202cjy', '000000', [
-    { backend: 'gist', token: OWNER_TOKEN, gistId: '7ce4ca4f6877f84894f846272e16b6c7', auto: true },
-  ]);
   if (hasLegacy) {
-    store.set(ACCT.data('ara0202cjy'), {
+    store.set(ACCT.data('lvcheng'), {
       progress: legacy.progress || {}, wrongBook: legacy.wrong || {}, selfBank: legacy.self || [],
       settings: Object.assign({ speed: 0, reviewMode: 'zh', autoSpeak: true, dailyNew: 20, curBank: '小学', reviewType: 'sentence' }, legacy.settings || {}),
       history: legacy.history || {}, learnState: legacy.learn || null,
     });
-    currentAccount = 'ara0202cjy'; saveSession(); loadState();
+    currentAccount = 'lvcheng'; saveSession(); loadState();
     if (window.Sync) Sync.reload();
     if (window.Sync && Sync.on()) { try { await Sync.sync(); } catch (e) { } }
   }
