@@ -131,7 +131,7 @@
   }
   const MASTERY = {
     unknown: { key: 'unknown', label: '未掌握', cls: 'm-unknown' },
-    fuzzy:   { key: 'fuzzy',   label: '模糊',   cls: 'm-fuzzy' },
+    fuzzy:   { key: 'fuzzy',   label: '部分掌握', cls: 'm-fuzzy' },
     known:   { key: 'known',   label: '已掌握', cls: 'm-known' },
   };
   // 语文专属：字词默写（录入后自动注音）
@@ -246,25 +246,39 @@
   }
 
   /* ---------- 复习计划（间隔推送 + 掌握判定） ---------- */
-  // 第 n 次复习的间隔天数（基于错题创建时间）：+2天、+7天、+30天，之后每 30 天
-  function dueDaysForReview(n) {
-    if (n === 0) return 2;
-    if (n === 1) return 7;
-    return 30 * (n - 1); // n>=2：30, 60, 90, 120 ...
+  // 第 n 次复习的间隔天数（基于错题创建时间）：
+  //   未掌握（unknown）：+2、+10、+30、+60、+90 …（之后每 30 天）
+  //   部分掌握（fuzzy）：+30、+60、+90 …（之后每 30 天）
+  function dueDaysForReview(n, mastery) {
+    if (mastery === 'fuzzy') return 30 * (n + 1);   // 30, 60, 90, 120 ...
+    if (n === 0) return 2;                          // 未掌握：2
+    if (n === 1) return 10;                         // 未掌握：10
+    return 30 * (n - 1);                            // 未掌握：30, 60, 90 ...
   }
   // 下一次应复习时间 = 创建时间 + 间隔
   function nextDueDate(e) {
     const n = (e.reviews || []).length;
-    return new Date(e.createdAt).getTime() + dueDaysForReview(n) * DAY;
+    return new Date(e.createdAt).getTime() + dueDaysForReview(n, e.mastery) * DAY;
   }
-  // 是否已掌握：连续答对 3 次 或 累计答对 5 次（手动标记 known 也算）
-  function isMastered(e) {
-    let consec = 0, total = 0;
-    for (const r of (e.reviews || [])) {
-      const c = r.correct !== undefined ? r.correct : (r.result === 'ok');
-      if (c) { consec++; total++; } else { consec = 0; }
+  // 从 startIdx 起往回数，末尾「连续答对」的次数
+  function tailCorrect(reviews, startIdx) {
+    let c = 0;
+    for (let i = reviews.length - 1; i >= startIdx; i--) {
+      const r = reviews[i];
+      const ok = r.correct !== undefined ? r.correct : (r.result === 'ok');
+      if (ok) c++; else break;
     }
-    return (consec >= 3 || total >= 5) || e.mastery === 'known';
+    return c;
+  }
+  // 是否已掌握（达成后即停止推送）：
+  //   未掌握：除首次（+2 天）外，连续答对 2 次
+  //   部分掌握：连续答对 2 次
+  //   手动标记 known：直接算已掌握
+  function isMastered(e) {
+    if (e.mastery === 'known') return true;
+    const rv = e.reviews || [];
+    if (e.mastery === 'fuzzy') return tailCorrect(rv, 0) >= 2;
+    return tailCorrect(rv, 1) >= 2;   // 未掌握：跳过首次 +2 天那次
   }
   // 待复习列表（未掌握且已到推送时间），按到期先后排序
   function dueReviews() {
@@ -273,12 +287,13 @@
     const due = list.filter(e => !isMastered(e) && nextDueDate(e) <= nowT);
     return due.sort((a, b) => nextDueDate(a) - nextDueDate(b));
   }
-  // 记录一次复习结果（correct: true/false）
+  // 记录一次复习结果（correct: true/false）；达成条件后自动归类「已掌握」
   function recordReview(id, correct) {
     const e = getError(id);
     if (!e) return;
     e.reviews = e.reviews || [];
     e.reviews.push({ date: now(), correct: !!correct });
+    if (isMastered(e)) e.mastery = 'known';   // 达成条件 → 归类已掌握，之后不再推送
     updateError(id, e);
     autoSyncTick();
   }
@@ -363,7 +378,7 @@
       mk({ id: 'demo_eng2', subject: '英语',
         text: '翻译：Where there is a will, there is a way.', kpId: kpOf('翻译', '英语'), srcId: srcOf('作业', '英语'), mastery: 'unknown',
         answer: '有志者事竟成。',
-        createdAt: ago(9), reviews: [{ date: ago(2), correct: true }] }),
+        createdAt: ago(11), reviews: [{ date: ago(2), correct: true }] }),
       mk({ id: 'demo_math2', subject: '数学',
         text: '证明：等腰三角形两底角相等。', kpId: kpOf('几何', '数学'), srcId: srcOf('单元测试', '数学'), mastery: 'unknown',
         answer: '作顶角平分线，由 SAS 证两三角形全等，故两底角相等。',
