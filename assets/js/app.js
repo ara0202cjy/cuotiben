@@ -9,7 +9,7 @@
   const $ = (sel, root) => (root || document).querySelector(sel);
   const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
 
-  const state = { view: 'home', subject: '全部', filter: {}, expanded: {}, selectMode: false, selected: new Set() };
+  const state = { view: 'home', subject: '全部', filter: {}, expanded: {}, selectMode: false, selected: new Set(), mineFilter: { subject: '全部', kpId: null, srcId: null }, mineStatOpen: true };
 
   /* ---------------- 通用 UI ---------------- */
   function toast(msg) {
@@ -1018,23 +1018,89 @@
   /* ---------------- 我的 ---------------- */
   function renderMine() {
     const kps = DB.getKeywords('kp').length, srcs = DB.getKeywords('src').length;
-    const subs = DB.getSubjects().length;
     $('#view').innerHTML = `
       <div class="card" style="text-align:center;padding:22px">
         <div style="font-size:40px">🌿</div>
         <p style="margin:6px 0 0;font-weight:700">我的错题本</p>
         <p style="margin:2px 0 0;color:var(--ink-2);font-size:13px">数据保存在本设备，可按学科管理错题本与关键词</p>
       </div>
+      <div class="ms-panel" id="msPanel">
+        <div class="ms-head" id="msToggle">
+          <span>掌握情况统计</span>
+          <span class="ms-chev">${state.mineStatOpen ? '▾' : '▸'}</span>
+        </div>
+        <div class="ms-body" id="msBody" ${state.mineStatOpen ? '' : 'hidden'}>${mineStatHTML()}</div>
+      </div>
       <div class="menu">
         <div class="row" id="mKp"><span class="mi">🏷</span><span class="mt">知识点管理</span><span class="mr">${kps} 个 ›</span></div>
         <div class="row" id="mSrc"><span class="mi">📌</span><span class="mt">来源管理</span><span class="mr">${srcs} 个 ›</span></div>
-        <div class="row" id="mFilter"><span class="mi">⚙</span><span class="mt">专项筛选巩固</span><span class="mr">›</span></div>
-        <div class="row" id="mStat"><span class="mi">📊</span><span class="mt">掌握情况统计</span><span class="mr">›</span></div>
       </div>`;
     $('#mKp').addEventListener('click', () => openKwManage('kp'));
     $('#mSrc').addEventListener('click', () => openKwManage('src'));
-    $('#mFilter').addEventListener('click', () => { state.filter = {}; setView('list'); openFilter(); });
-    $('#mStat').addEventListener('click', openStat);
+    $('#msToggle').addEventListener('click', () => { state.mineStatOpen = !state.mineStatOpen; renderMine(); });
+    bindMineStat();
+  }
+  // 「我的」页内联掌握统计：筛选（学科/知识点/来源）+ 对错情况 + 掌握情况
+  function mineStatHTML() {
+    const f = state.mineFilter;
+    const subs = DB.getSubjects();
+    const kps = DB.getKeywords('kp').filter(k => f.subject === '全部' || k.subject === f.subject);
+    const srcs = DB.getKeywords('src').filter(k => f.subject === '全部' || k.subject === f.subject);
+    const filt = {};
+    if (f.subject !== '全部') filt.subject = f.subject;
+    if (f.kpId) filt.kpId = f.kpId;
+    if (f.srcId) filt.srcId = f.srcId;
+    const errs = DB.getErrors(filt);
+    let revTotal = 0, revOk = 0, revBad = 0;
+    errs.forEach(e => (e.reviews || []).forEach(r => { revTotal++; if (r.correct) revOk++; else revBad++; }));
+    const known = errs.filter(e => DB.isMastered(e)).length;
+    const fuzzy = errs.filter(e => !DB.isMastered(e) && (e.mastery || 'unknown') === 'fuzzy').length;
+    const unknown = errs.length - known - fuzzy;
+    const pct = n => errs.length ? Math.round(n / errs.length * 100) : 0;
+    const subChips = ['全部', ...subs].map(s => `<button class="chip ${s === f.subject ? 'active' : ''}" data-sub="${esc(s)}">${esc(s)}</button>`).join('');
+    const kpChips = kps.length ? kps.map(k => `<button class="chip ${k.id === f.kpId ? 'active' : ''}" data-kp="${k.id}">${esc(k.name)}</button>`).join('') : '<span class="ms-empty">暂无知识点</span>';
+    const srcChips = srcs.length ? srcs.map(k => `<button class="chip ${k.id === f.srcId ? 'active' : ''}" data-src="${k.id}">${esc(k.name)}</button>`).join('') : '<span class="ms-empty">暂无来源</span>';
+    return `
+      <div class="ms-filters">
+        <div class="ms-frow"><span class="ms-fl">学科</span><div class="kw-box">${subChips}</div></div>
+        <div class="ms-frow"><span class="ms-fl">知识点</span><div class="kw-box">${kpChips}</div></div>
+        <div class="ms-frow"><span class="ms-fl">来源</span><div class="kw-box">${srcChips}</div></div>
+      </div>
+      <div class="ms-stat">
+        <div class="ms-block">
+          <p class="card-h">对错情况</p>
+          <div class="stat-row">
+            <div class="stat"><div class="num">${revTotal}</div><div class="lab">总复习</div></div>
+            <div class="stat"><div class="num" style="color:var(--ok)">${revOk}</div><div class="lab">答对</div></div>
+            <div class="stat"><div class="num" style="color:var(--bad)">${revBad}</div><div class="lab">答错</div></div>
+          </div>
+        </div>
+        <div class="ms-block" style="margin-top:14px">
+          <p class="card-h">掌握情况（${errs.length} 道）</p>
+          <div class="ms-mast">
+            <div class="ms-mrow"><span>未掌握</span><div class="bar"><i style="width:${pct(unknown)}%;background:#d17878"></i></div><b>${unknown}</b></div>
+            <div class="ms-mrow"><span>部分掌握</span><div class="bar"><i style="width:${pct(fuzzy)}%;background:#c08f2e"></i></div><b>${fuzzy}</b></div>
+            <div class="ms-mrow"><span>已掌握</span><div class="bar"><i style="width:${pct(known)}%;background:#5f9c78"></i></div><b>${known}</b></div>
+          </div>
+        </div>
+      </div>`;
+  }
+  function paintMineStat() {
+    const body = document.getElementById('msBody');
+    if (!body) return;
+    body.innerHTML = mineStatHTML();
+    bindMineStat();
+  }
+  function bindMineStat() {
+    $$('#msBody [data-sub]').forEach(c => c.addEventListener('click', () => {
+      state.mineFilter.subject = c.dataset.sub; state.mineFilter.kpId = null; state.mineFilter.srcId = null; paintMineStat();
+    }));
+    $$('#msBody [data-kp]').forEach(c => c.addEventListener('click', () => {
+      state.mineFilter.kpId = (state.mineFilter.kpId === c.dataset.kp) ? null : c.dataset.kp; paintMineStat();
+    }));
+    $$('#msBody [data-src]').forEach(c => c.addEventListener('click', () => {
+      state.mineFilter.srcId = (state.mineFilter.srcId === c.dataset.src) ? null : c.dataset.src; paintMineStat();
+    }));
   }
 
   function openKwManage(type) {
@@ -1042,12 +1108,16 @@
     let sel = subjects[0];
     function listHTML() {
       const list = DB.getKeywords(type).filter(k => k.subject === sel);
-      return list.length ? list.map(k => `
+      const errsAll = DB.getErrors();
+      return list.length ? list.map(k => {
+        const cnt = errsAll.filter(e => e.kpId === k.id || e.srcId === k.id).length;
+        return `
         <div class="item" style="display:flex;align-items:center;gap:10px;cursor:default">
-          <div style="flex:1">${k.name}</div>
+          <div style="flex:1">${esc(k.name)}${cnt ? `<span class="kw-cnt">${cnt} 道</span>` : ''}</div>
           <button class="opt" data-edit="${k.id}">改</button>
           <button class="opt" data-del="${k.id}" style="color:var(--bad)">删</button>
-        </div>`).join('') : '<div class="empty">该科目下暂无，点击下方新增</div>';
+        </div>`;
+      }).join('') : '<div class="empty">该科目下暂无，点击下方新增</div>';
     }
     function sheetHTML() {
       return `
@@ -1069,38 +1139,15 @@
         const n = prompt('修改为：', k.name); if (n && n.trim()) { DB.updateKeyword(k.id, n); rebind(); }
       }));
       body.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => {
-        if (confirm('删除该' + (type === 'kp' ? '知识点' : '来源') + '？相关错题的对应标签会清空。')) { DB.deleteKeyword(b.dataset.del); rebind(); }
+        const used = DB.getErrors().filter(e => e.kpId === b.dataset.del || e.srcId === b.dataset.del).length;
+        if (used > 0) { toast('该' + (type === 'kp' ? '知识点' : '来源') + '下还有 ' + used + ' 道错题，暂不可删除（请先处理相关错题）'); return; }
+        if (confirm('删除该' + (type === 'kp' ? '知识点' : '来源') + '？')) { DB.deleteKeyword(b.dataset.del); rebind(); }
       }));
       body.querySelector('#kwAdd').addEventListener('click', () => {
         const n = prompt('输入名称：'); if (n && n.trim()) { DB.addKeyword(type, n, sel); rebind(); }
       });
     }
     rebind();
-  }
-
-  function openStat() {
-    const errs = DB.getErrors();
-    const subjects = DB.getSubjects();
-    const bySubj = {}; subjects.forEach(s => bySubj[s] = errs.filter(e => e.subject === s).length);
-    const known = errs.filter(e => e.mastery === 'known').length;
-    const rate = errs.length ? Math.round(known / errs.length * 100) : 0;
-    openSheet(`
-      <button class="close-x">✕</button>
-      <h3>掌握情况统计</h3>
-      <div class="stat-row">
-        <div class="stat"><div class="num">${errs.length}</div><div class="lab">总错题</div></div>
-        <div class="stat"><div class="num">${known}</div><div class="lab">已掌握</div></div>
-        <div class="stat"><div class="num">${rate}%</div><div class="lab">掌握率</div></div>
-      </div>
-      <div class="card" style="margin-top:16px">
-        <p class="card-h">各科分布</p>
-        ${subjects.map(s => `<div style="display:flex;align-items:center;gap:10px;margin:8px 0">
-          <span style="width:48px">${s}</span>
-          <div style="flex:1;height:10px;background:var(--surface-2);border-radius:6px;overflow:hidden">
-            <div style="height:100%;width:${errs.length ? bySubj[s] / errs.length * 100 : 0}%;background:var(--primary)"></div></div>
-          <span style="width:30px;text-align:right;color:var(--ink-2)">${bySubj[s]}</span>
-        </div>`).join('')}
-      </div>`);
   }
 
   /* ---------------- 图片裁剪（矩形框，可拖动/缩放） ---------------- */
