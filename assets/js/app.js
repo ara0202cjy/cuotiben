@@ -186,7 +186,7 @@
 
   function isDictError(e) {
     const kp = DB.getKeywords('kp').find(k => k.id === e.kpId);
-    return e.subject === '语文' && kp && kp.name === DB.CHINESE_DICT_KP;
+    return e.subject === '语文' && kp && DB.isChineseDictKp(kp.name);
   }
   // 题目展示块：文字（字词默写为拼音）在上，图片在下
   function questionBlockHTML(e, isPinyin) {
@@ -644,7 +644,7 @@
     const isEdit = !!err;
     const editId = err ? err.id : null;
     const dictOf = e => e && e.subject === '语文'
-      && DB.getKeywords('kp').find(k => k.id === e.kpId)?.name === DB.CHINESE_DICT_KP;
+      && DB.isChineseDictKp(DB.getKeywords('kp').find(k => k.id === e.kpId)?.name);
     // 录入 / 编辑两用：文字 + 图片 并存（每道题可填文字、并可从相册添加图片，图片可裁剪）
     const form = {
       subject: err ? err.subject : (subjects.includes('数学') ? '数学' : subjects[0]),
@@ -675,10 +675,10 @@
       bindKw();
       // 语文字词默写 -> 中文转拼音题目，中文作为正确答案，隐藏"正确答案"输入框
       const kp = DB.getKeywords('kp').find(k => k.id === form.kpId);
-      const isDict = form.subject === '语文' && kp && kp.name === DB.CHINESE_DICT_KP;
+      const isDict = form.subject === '语文' && kp && DB.isChineseDictKp(kp.name);
       $('#pinyinWrap').style.display = isDict ? 'block' : 'none';
       $('#entryAnsField').style.display = isDict ? 'none' : 'block';
-      $('#entryQLabel').textContent = isDict ? '字词默写内容（输入中文，将自动转为拼音题目）' : '题干 / 错题内容';
+      $('#entryQLabel').textContent = isDict ? '字词内容（输入中文，将自动转为拼音题目）' : '题干 / 错题内容';
       if (isDict) {
         const py = DB.toPinyin(form.text);
         if (py) { form.pinyin = py; $('#pinyinVal').textContent = py; }
@@ -774,7 +774,7 @@
       const hasImg = !!form.image;
       if (!hasText && !hasImg) { toast('请填写文字或从相册添加图片'); return; }
       const isDict = form.subject === '语文'
-        && DB.getKeywords('kp').find(k => k.id === form.kpId)?.name === DB.CHINESE_DICT_KP;
+        && DB.isChineseDictKp(DB.getKeywords('kp').find(k => k.id === form.kpId)?.name);
       const mode = (hasText && hasImg) ? 'mixed' : hasImg ? 'image' : 'text';
       let payload = {
         subject: form.subject, mode,
