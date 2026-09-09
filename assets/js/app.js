@@ -835,7 +835,7 @@
     $('#view').innerHTML = `
       <div class="card" style="padding:14px 16px">
         <p class="card-h" style="margin-bottom:6px">复习推送计划</p>
-        <p style="font-size:12.5px;color:var(--ink-2);margin:0;line-height:1.6">系统按 <b>+2天 / +7天 / +30天 / 之后每30天</b> 推送复习；<b>连续答对 3 次</b> 或 <b>累计答对 5 次</b> 即标记已掌握并停止推送。</p>
+        <p style="font-size:12.5px;color:var(--ink-2);margin:0;line-height:1.6"><b>未掌握</b>：按 +2 / +10 / +30 / +60 / +90 …天推送，除首次外连续答对 2 次即归为已掌握；<b>部分掌握</b>：按 +30 / +60 / +90 …天推送，连续答对 2 次即归为已掌握。已掌握不再推送。</p>
       </div>
       ${due.length === 0
         ? '<div class="empty"><span class="em-ico">🌱</span>今天没有需要复习的错题，继续保持！</div>'
