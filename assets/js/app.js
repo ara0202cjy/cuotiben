@@ -9,7 +9,7 @@
   const $ = (sel, root) => (root || document).querySelector(sel);
   const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
 
-  const state = { view: 'home', subject: '全部', filter: {}, expanded: {} };
+  const state = { view: 'home', subject: '全部', filter: {}, expanded: {}, selectMode: false, selected: new Set() };
 
   /* ---------------- 通用 UI ---------------- */
   function toast(msg) {
@@ -196,14 +196,17 @@
     if (e.image) h += `<img class="detail-img" src="${e.image}"/>`;
     return h || '<div class="detail-q">（无内容）</div>';
   }
-  function itemHTML(e, withDel, expandable) {
+  function itemHTML(e, withDel, expandable, selectable, selected) {
     const hasImg = !!e.image;
     const isP = isDictError(e);
     const q = (isP ? (e.pinyin || e.text || '') : (e.text || '')).slice(0, 60) || (hasImg ? '［含图片错题］' : '（未填写题干）');
     return `
-      <div class="item" data-id="${e.id}">
+      <div class="item${selectable && selected ? ' sel' : ''}" data-id="${e.id}">
         ${withDel ? `<button class="item-edit" data-edit="${e.id}" title="编辑 / 删除" aria-label="编辑"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>` : ''}
-        <div class="item-top">${metaTagsHTML(e)}</div>
+        <div class="item-top">
+          ${selectable ? `<input type="checkbox" class="item-check" data-id="${e.id}" ${selected ? 'checked' : ''} aria-label="选择"/>` : ''}
+          ${metaTagsHTML(e)}
+        </div>
         <div class="item-q">${q}</div>
         ${expandable ? `<div class="item-exp" hidden>${errorExpandHTML(e)}</div>` : `
         <div class="item-when">录入于 ${fmtDate(e.createdAt)}</div>`}
@@ -498,18 +501,28 @@
     const total = DB.getErrors().length;
     const allOpen = subjects.length > 0 && subjects.every(s => expanded[s]);
 
+    // 筛选模式下，只展示「有符合筛选错题」的学科笔记本，保持界面紧凑
+    const subjectErrs = s => DB.getErrors(Object.assign({ subject: s }, hasFilter ? state.filter : {}));
+    const showSubjects = hasFilter ? subjects.filter(s => subjectErrs(s).length > 0) : subjects;
+
     $('#view').innerHTML = `
-      <div class="btn-row" style="margin-bottom:12px">
+      <div class="nb-tools">
         <button class="btn ghost" id="openFilter">⚙ 筛选${filterLabel()}</button>
-        <button class="btn ghost" id="toggleAll">${allOpen ? '全部收起' : '全部展开'}</button>
+        <button class="btn ghost" id="toggleSelect">${state.selectMode ? '✓ 完成' : '☑ 勾选'}</button>
+        <button class="btn ghost" id="selectAll">全选</button>
+        <button class="btn ghost" id="toggleAll">${allOpen ? '收起' : '展开'}</button>
       </div>
-      <div class="btn-row" style="margin-bottom:12px">
-        <button class="btn ghost" id="exportPdf">📄 导出PDF（勾选题目）</button>
-      </div>
-      <p class="list-hint">点开任一错题本可预览内容 / 筛选本本错题 · 共 ${total} 道 · 点 ✕ 可删减</p>
-      ${subjects.map(s => {
+      ${state.selectMode ? `
+      <div class="nb-tools nb-act" style="margin-top:8px">
+        <span class="nb-cnt">已选 ${state.selected.size} 道</span>
+        <button class="btn ghost nb-danger" id="delSel">🗑 删除选中</button>
+        <button class="btn" id="expSel">📄 导出PDF</button>
+        <button class="btn ghost" id="selNone">清空选择</button>
+      </div>` : ''}
+      <p class="list-hint">点开任一错题本可预览内容 · 共 ${total} 道 · 点 ✕ 可删减${hasFilter ? '（已按筛选隐藏无匹配学科）' : ''}</p>
+      ${showSubjects.length ? showSubjects.map(s => {
         const errsAll = DB.getErrors({ subject: s });
-        const errs = DB.getErrors(Object.assign({ subject: s }, hasFilter ? state.filter : {}));
+        const errs = subjectErrs(s);
         const isOpen = !!expanded[s];
         return `
         <div class="book">
@@ -520,32 +533,61 @@
           </div>
           <div class="book-body" id="book-${s}" ${isOpen ? '' : 'hidden'}>
             ${errs.length
-              ? errs.map(e => itemHTML(e, true, true)).join('')
+              ? errs.map(e => itemHTML(e, true, true, state.selectMode, state.selected.has(e.id))).join('')
               : `<div class="book-empty">${hasFilter ? '该本无符合筛选的错题' : '本错题本还是空的，点 ＋ 录入吧'}</div>`}
-            ${errsAll.length ? `<button class="book-filter" data-s="${s}">⚙ 筛选本本内容</button>` : ''}
           </div>
         </div>`;
-      }).join('')}`;
+      }).join('') : `<div class="empty">没有符合当前筛选的错题</div>`}`;
 
     $('#openFilter').addEventListener('click', () => openFilter());
-    $('#exportPdf').addEventListener('click', openExportSelect);
+    $('#toggleSelect').addEventListener('click', () => {
+      state.selectMode = !state.selectMode;
+      if (!state.selectMode) state.selected.clear();
+      renderList();
+    });
+    $('#selectAll').addEventListener('click', () => {
+      state.selectMode = true;
+      const ids = [];
+      showSubjects.forEach(s => subjectErrs(s).forEach(e => ids.push(e.id)));
+      state.selected = new Set(ids);
+      renderList();
+    });
     $('#toggleAll').addEventListener('click', () => {
       const all = subjects.every(s => state.expanded[s]);
       subjects.forEach(s => (state.expanded[s] = !all));
       renderList();
     });
+    if (state.selectMode) {
+      $('#delSel').addEventListener('click', () => {
+        const ids = Array.from(state.selected);
+        if (!ids.length) { toast('请先勾选要删除的错题'); return; }
+        if (!confirm(`确定删除选中的 ${ids.length} 道错题？此操作不可恢复`)) return;
+        ids.forEach(id => DB.deleteError(id));
+        state.selected.clear();
+        renderList();
+        toast('已删除 ' + ids.length + ' 道错题');
+      });
+      $('#expSel').addEventListener('click', () => openExportSelect(Array.from(state.selected)));
+      $('#selNone').addEventListener('click', () => { state.selected.clear(); renderList(); });
+    }
     $$('.book-head').forEach(h => h.addEventListener('click', () => {
       const s = h.dataset.s; state.expanded[s] = !state.expanded[s];
       const body = document.getElementById('book-' + s);
       if (body) body.hidden = !state.expanded[s];
       const chev = h.querySelector('.book-chev'); if (chev) chev.textContent = state.expanded[s] ? '▾' : '▸';
     }));
-    $$('.book-filter').forEach(b => b.addEventListener('click', e => {
-      e.stopPropagation();
-      state.expanded[b.dataset.s] = true;
-      openFilter(b.dataset.s);
-    }));
     bindItems();
+    bindItemChecks();
+  }
+  // 勾选模式：卡片复选框切换选中状态
+  function bindItemChecks() {
+    $$('.item-check').forEach(c => c.addEventListener('click', e => {
+      e.stopPropagation();
+      const id = c.dataset.id;
+      if (c.checked) state.selected.add(id); else state.selected.delete(id);
+      c.closest('.item')?.classList.toggle('sel', c.checked);
+      const cnt = document.querySelector('.nb-cnt'); if (cnt) cnt.textContent = '已选 ' + state.selected.size + ' 道';
+    }));
   }
   function filterLabel() {
     const f = state.filter; let n = 0;
@@ -718,8 +760,8 @@
         <label>题目将自动转为拼音（复习时显示拼音，中文作正确答案不展示）</label>
         <div class="pinyin-line" id="pinyinVal">${form.pinyin}</div>
       </div>
-      <div class="field"><label>知识点（${form.subject}）</label><div class="kw-box" id="entryKp">${kpOptions()}</div></div>
-      <div class="field"><label>来源（${form.subject}）</label><div class="kw-box" id="entrySrc">${srcOptions()}</div></div>
+      <div class="field"><label>知识点</label><div class="kw-box" id="entryKp">${kpOptions()}</div></div>
+      <div class="field"><label>来源</label><div class="kw-box" id="entrySrc">${srcOptions()}</div></div>
       <div class="field"><label>掌握情况</label>
         <div class="opt-row" id="entryMastery">
           ${Object.values(DB.MASTERY).map(m => `<span class="opt ${form.mastery === m.key ? 'active' : ''}" data-m="${m.key}">${m.label}</span>`).join('')}
@@ -1139,12 +1181,18 @@
   // 语文、英语不预留作答区域，其余科目预留
   function needWrite(e) { return e.subject !== '语文' && e.subject !== '英语'; }
 
-  // 第一步：在当前筛选结果中勾选要导出的题目
-  function openExportSelect() {
-    const list = DB.getErrors(Object.assign(
-      {}, state.subject !== '全部' ? { subject: state.subject } : {}, state.filter
-    ));
-    if (!list.length) { toast('当前筛选没有可导出的错题'); return; }
+  // 第一步：在当前筛选结果（或指定 id 集合）中勾选要导出的题目
+  function openExportSelect(ids) {
+    let list;
+    if (ids && ids.length) {
+      const all = DB.getErrors();
+      list = all.filter(e => ids.includes(e.id));
+    } else {
+      list = DB.getErrors(Object.assign(
+        {}, state.subject !== '全部' ? { subject: state.subject } : {}, state.filter
+      ));
+    }
+    if (!list.length) { toast('当前没有可导出的错题'); return; }
     const body = openSheet(`
       <button class="close-x">✕</button>
       <h3>选择要导出的错题</h3>
