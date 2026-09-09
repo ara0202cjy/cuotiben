@@ -431,13 +431,18 @@
           <div class="set-row" style="cursor:default">
             <span class="set-ico">👤</span><span class="set-label">当前账户</span><span class="set-val">${esc(cur.name)}</span>
           </div>
-          <div class="set-row" style="cursor:default">
+          <div class="set-row" id="accSyncRow" style="cursor:pointer" title="点击立即同步一次（配置不可修改）">
             <span class="set-ico">☁</span><span class="set-label">云端同步</span><span class="set-val">${esc(syncTxt)}</span>
           </div>
           <button class="set-row" id="accLogout"><span class="set-ico">⏏</span><span class="set-label">退出登录</span><span class="set-val">切到本地 / 其他账户</span></button>
           <button class="set-row" id="accSwitch"><span class="set-ico">🔁</span><span class="set-label">切换 / 登录其他账户</span><span class="set-val">打开登录窗口</span></button>`;
         $('#accLogout').addEventListener('click', () => { DB.logout(); closeSheet(); openLoginModal(); });
         $('#accSwitch').addEventListener('click', () => { closeSheet(); openLoginModal(); });
+        // 点击状态行 = 立即同步一次（只读展示之外不暴露任何可改配置）
+        const sr = document.getElementById('accSyncRow');
+        if (sr) sr.addEventListener('click', async () => {
+          if (await cloudSyncNow()) { toast('已同步 ✓'); renderAccountBox(); }
+        });
       } else {
         box.innerHTML = `
           <div class="set-row" style="cursor:default">
@@ -1186,8 +1191,79 @@
     setTimeout(() => window.print(), 60);
   }
 
+  // 立即同步一次：先拉取云端最新，若云端无数据 / 拉取失败则改为上传本地
+  async function cloudSyncNow() {
+    const a = DB.getCurrentAccount();
+    const c = DB.getCloud() || {};
+    if (!a) { toast('请先登录账户后再同步'); return false; }
+    if (!c.token || !c.gistId) { toast('本机未配置云端：请退出登录后重新登录，按提示填一次 Token'); return false; }
+    try {
+      await DB.gistDownload().catch(() => DB.gistUpload());
+      setView(state.view); updateRevBadge();
+      return true;
+    } catch (e) { toast('同步失败：' + e.message); return false; }
+  }
+
+  /* ---------------- 下拉同步：页面顶部下拉即同步（手机 / iPad 触屏） ---------------- */
+  function initPullToSync() {
+    const THRESHOLD = 62, MAX = 110;
+    // 指示器样式随组件注入，保持与逻辑内聚
+    if (!document.getElementById('pullStyle')) {
+      const st = document.createElement('style');
+      st.id = 'pullStyle';
+      st.textContent = '.pull-ind{position:fixed;left:50%;transform:translateX(-50%);top:8px;z-index:9999;height:0;overflow:hidden;opacity:0;display:flex;align-items:center;justify-content:center;min-width:132px;padding:0 14px;background:rgba(122,189,154,.94);color:#fff;border-radius:16px;font-size:13px;font-weight:700;box-shadow:0 4px 14px rgba(0,0,0,.14);pointer-events:none;transition:height .12s ease,opacity .12s ease;}.pull-ind.ready{background:rgba(83,163,124,.96);}';
+      document.head.appendChild(st);
+    }
+    let ind = document.getElementById('pullInd');
+    if (!ind) { ind = document.createElement('div'); ind.id = 'pullInd'; ind.className = 'pull-ind'; document.body.appendChild(ind); }
+    let startY = 0, pulling = false, dy = 0, busy = false;
+
+    function scrollTopNow() {
+      const v = document.getElementById('view');
+      if (v) {
+        const cs = getComputedStyle(v);
+        if ((cs.overflowY === 'auto' || cs.overflowY === 'scroll') && v.scrollHeight > v.clientHeight + 2) return v.scrollTop;
+      }
+      return (document.scrollingElement || document.documentElement).scrollTop || window.scrollY || 0;
+    }
+    function setInd(text, h) { ind.textContent = text; ind.style.height = (h || 0) + 'px'; ind.style.opacity = h ? 1 : 0; }
+    function reset() { pulling = false; dy = 0; setInd('', 0); ind.classList.remove('ready'); }
+    function onStart(y) {
+      if (busy) return;
+      if (scrollTopNow() > 2) return;              // 仅在页面顶部才允许下拉，避免与滚动冲突
+      startY = y; pulling = true; dy = 0;
+    }
+    function onMove(y, ev) {
+      if (!pulling || busy) return;
+      dy = y - startY;
+      if (dy <= 0 || scrollTopNow() > 2) { reset(); return; }
+      if (ev && ev.cancelable) ev.preventDefault();
+      const ready = dy >= THRESHOLD;
+      ind.classList.toggle('ready', ready);
+      setInd(ready ? '↓ 松手同步' : '↓ 下拉同步', Math.min(MAX, dy * 0.5));
+    }
+    async function onEnd() {
+      if (!pulling || busy) return;
+      const ok = dy >= THRESHOLD;
+      pulling = false;
+      if (!ok) { reset(); return; }
+      busy = true;
+      setInd('同步中…', 38);
+      const done = await cloudSyncNow();
+      setInd(done ? '同步完成 ✓' : '同步失败', 38);
+      if (done) toast('已同步 ✓');
+      dy = 0;
+      setTimeout(() => { busy = false; reset(); }, 900);
+    }
+
+    document.addEventListener('touchstart', e => { if (e.touches.length === 1) onStart(e.touches[0].clientY); }, { passive: true });
+    document.addEventListener('touchmove', e => { if (e.touches.length === 1) onMove(e.touches[0].clientY, e); }, { passive: false });
+    document.addEventListener('touchend', onEnd, { passive: true });
+  }
+
   /* ---------------- 启动 ---------------- */
   DB.migrateLegacy();
   DB.seedAccounts();
+  initPullToSync();
   if (DB.getCurrentName()) afterLogin(); else openLoginModal();
 })();
