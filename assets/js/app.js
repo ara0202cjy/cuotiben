@@ -420,9 +420,19 @@
       const box = document.getElementById('accountBox'); if (!box) return;
       const cur = DB.getCurrentAccount();
       if (cur) {
+        const cl = DB.getCloud() || {};
+        let syncTxt = '未配置（下次登录会再提示）';
+        if (cl.token) {
+          syncTxt = cl.autoSync
+            ? ('已开启 · 自动备份' + (cl.lastSync ? '（上次 ' + fmtDate(cl.lastSync) + '）' : ''))
+            : '已配置 · 未开启自动备份';
+        }
         box.innerHTML = `
           <div class="set-row" style="cursor:default">
             <span class="set-ico">👤</span><span class="set-label">当前账户</span><span class="set-val">${esc(cur.name)}</span>
+          </div>
+          <div class="set-row" style="cursor:default">
+            <span class="set-ico">☁</span><span class="set-label">云端同步</span><span class="set-val">${esc(syncTxt)}</span>
           </div>
           <button class="set-row" id="accLogout"><span class="set-ico">⏏</span><span class="set-label">退出登录</span><span class="set-val">切到本地 / 其他账户</span></button>
           <button class="set-row" id="accSwitch"><span class="set-ico">🔁</span><span class="set-label">切换 / 登录其他账户</span><span class="set-val">打开登录窗口</span></button>`;
