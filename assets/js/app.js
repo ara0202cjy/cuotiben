@@ -36,6 +36,13 @@
     return DB.isMastered(e) ? masteryTag('known') : masteryTag(e.mastery || 'unknown');
   }
   function kwName(id) { const k = DB.getKeywords().find(x => x.id === id); return k ? k.name : ''; }
+  // 卡片顶部统一标签（高频词方式）：科目 → 知识点 → 来源 → 掌握情况
+  function metaTagsHTML(e) {
+    return subjTag(e.subject)
+      + (e.kpId ? `<span class="tag">${esc(kwName(e.kpId))}</span>` : '')
+      + (e.srcId ? `<span class="tag">${esc(kwName(e.srcId))}</span>` : '')
+      + masteryDisplay(e);
+  }
   function fmtDate(iso) {
     const d = new Date(iso); const p = n => (n < 10 ? '0' : '') + n;
     return `${d.getMonth() + 1}月${d.getDate()}日 ${p(d.getHours())}:${p(d.getMinutes())}`;
@@ -123,8 +130,6 @@
     const ok = e.reviews.filter(r => r.correct).length;
     const bad = e.reviews.length - ok;
     return `
-      ${e.kpId ? expRow('知识点', kwName(e.kpId)) : ''}
-      ${e.srcId ? expRow('来源', kwName(e.srcId)) : ''}
       <div class="exp-q">${qFull || (e.image ? '［含图片错题］' : '（未填写题干）')}</div>
       ${e.image ? `<img class="exp-img" src="${e.image}" alt=""/>` : ''}
       <div class="ans-wrap">
@@ -143,8 +148,7 @@
     return `
       <div class="recent-item" data-id="${e.id}">
         <div class="recent-top">
-          ${subjTag(e.subject)}
-          ${e.kpId ? `<span class="tag">${kwName(e.kpId)}</span>` : ''}
+          ${metaTagsHTML(e)}
           <button class="item-edit" data-edit="${e.id}" title="编辑 / 删除" aria-label="编辑">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
           </button>
@@ -199,13 +203,9 @@
     return `
       <div class="item" data-id="${e.id}">
         ${withDel ? `<button class="item-edit" data-edit="${e.id}" title="编辑 / 删除" aria-label="编辑"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>` : ''}
-        <div class="item-top">${subjTag(e.subject)} ${masteryDisplay(e)}</div>
+        <div class="item-top">${metaTagsHTML(e)}</div>
         <div class="item-q">${q}</div>
         ${expandable ? `<div class="item-exp" hidden>${errorExpandHTML(e)}</div>` : `
-        <div class="item-meta">
-          ${e.kpId ? `<span class="tag">知识点 · ${kwName(e.kpId)}</span>` : ''}
-          ${e.srcId ? `<span class="tag">来源 · ${kwName(e.srcId)}</span>` : ''}
-        </div>
         <div class="item-when">录入于 ${fmtDate(e.createdAt)}</div>`}
       </div>`;
   }
@@ -812,16 +812,12 @@
     const isPinyin = isDictError(e);
     const body = openSheet(`
       <button class="close-x">✕</button>
-      <h3>${subjTag(e.subject)} 错题详情</h3>
+      <h3>错题详情</h3>
+      <div class="item-meta">${metaTagsHTML(e)}</div>
       ${questionBlockHTML(e, isPinyin)}
       <div class="ans-wrap" style="margin-top:10px">
         <button class="btn ghost" id="showAnsBtn">显示正确答案</button>
         <div class="detail-a" id="ansBox" style="display:none">${e.answer || '（未填写）'}</div>
-      </div>
-      <div class="item-meta">
-        ${e.kpId ? `<span class="tag">知识点 · ${kwName(e.kpId)}</span>` : ''}
-        ${e.srcId ? `<span class="tag">来源 · ${kwName(e.srcId)}</span>` : ''}
-        ${masteryDisplay(e)}
       </div>
       <div class="item-when" style="margin-top:8px">
         ${DB.isMastered(e) ? '🟢 已掌握 · 已停止推送' : '🔔 下次推送：' + fmtDue(DB.nextDueDate(e))}
@@ -873,7 +869,7 @@
             <div class="rev-item">
               <div class="rev-due">${dueLabel(e)}</div>
               <div class="rev-card">
-                <div class="item-top">${subjTag(e.subject)} ${masteryDisplay(e)}
+                <div class="item-top">${metaTagsHTML(e)}
                   <button class="item-edit" data-edit="${e.id}" title="编辑 / 删除" aria-label="编辑">
                     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
                   </button>
@@ -942,7 +938,7 @@
       || (e.image ? '［含图片错题］' : '（未填写题干）');
     return `
       <div class="grade-item" data-id="${e.id}">
-        <div class="grade-top">${subjTag(e.subject)}${e.kpId ? `<span class="tag">${kwName(e.kpId)}</span>` : ''}${e.srcId ? `<span class="tag">${kwName(e.srcId)}</span>` : ''}</div>
+        <div class="grade-top">${metaTagsHTML(e)}</div>
         <div class="grade-q">${q}</div>
         ${e.image ? `<img class="grade-img" src="${e.image}" alt=""/>` : ''}
         <div class="grade-ans"><span class="ga-k">答案：</span>${e.answer || '（未填写答案）'}</div>
