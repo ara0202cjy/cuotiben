@@ -227,6 +227,69 @@
   }
 
   /* ---------------- 设置（数据迁移 / 清空 / 云端同步预留） ---------------- */
+  /* ---------------- 账户登录 ---------------- */
+  function injectLoginModal() {
+    if (document.getElementById('loginMask')) return;
+    const m = document.createElement('div');
+    m.id = 'loginMask'; m.className = 'sheet-mask'; m.hidden = true;
+    m.innerHTML = '<div class="sheet" id="loginBody"></div>';
+    document.body.appendChild(m);
+    m.addEventListener('click', e => { if (e.target === m) closeLoginModal(); });
+  }
+  function loginFormHTML() {
+    return `
+      <button class="close-x" id="loginClose">✕</button>
+      <h3>账户登录</h3>
+      <p class="set-tip2">登录后错题按账户隔离保存；开启自动同步的账户会实时备份到云端 Gist。已内置账户 lvcheng / 000000。</p>
+      <div class="set-form">
+        <label class="set-lbl">账户名</label>
+        <input class="set-input" id="loginName" type="text" placeholder="如 lvcheng" autocomplete="username" />
+        <label class="set-lbl">密码</label>
+        <input class="set-input" id="loginPass" type="password" placeholder="请输入密码" autocomplete="current-password" />
+        <div class="set-form-btns">
+          <button class="btn small" id="loginBtn">登录</button>
+          <button class="btn small ghost" id="regBtn">注册新账户</button>
+        </div>
+        <p class="cloud-status" id="loginMsg"></p>
+        <button class="btn small ghost" id="localBtn" style="width:100%;margin-top:6px">以「本地游客」进入（不同步）</button>
+      </div>`;
+  }
+  function bindLoginForm() {
+    const b = document.getElementById('loginBody'); if (!b) return;
+    $('#loginClose').addEventListener('click', () => closeLoginModal());
+    $('#loginBtn').addEventListener('click', () => {
+      const name = $('#loginName').value.trim(), pass = $('#loginPass').value;
+      if (!DB.verifyAccount(name, pass)) { $('#loginMsg').textContent = '账户名或密码错误'; return; }
+      DB.setCurrentName(name); closeLoginModal(); afterLogin();
+    });
+    $('#regBtn').addEventListener('click', () => {
+      const name = ($('#loginName').value || '').trim();
+      const pass = $('#loginPass').value;
+      if (!name || !pass) { $('#loginMsg').textContent = '账户名与密码都不能为空'; return; }
+      try { DB.registerAccount(name, pass); }
+      catch (e) { $('#loginMsg').textContent = e.message; return; }
+      DB.setCurrentName(name); closeLoginModal(); toast('账户已创建并登录 ✓'); afterLogin();
+    });
+    $('#localBtn').addEventListener('click', () => { DB.setCurrentName(null); closeLoginModal(); afterLogin(); });
+    $('#loginPass').addEventListener('keydown', e => { if (e.key === 'Enter') $('#loginBtn').click(); });
+  }
+  function openLoginModal() {
+    injectLoginModal();
+    document.getElementById('loginBody').innerHTML = loginFormHTML();
+    bindLoginForm();
+    document.getElementById('loginMask').hidden = false;
+  }
+  function closeLoginModal() { const m = document.getElementById('loginMask'); if (m) m.hidden = true; }
+  function afterLogin() {
+    DB.seedIfEmpty();
+    const c = DB.getCloud();
+    if (c.autoSync && c.token && c.gistId) {
+      DB.gistDownload().then(() => { toast('已从云端同步 ✓'); setView(state.view); })
+        .catch(e => { toast('云端同步失败：' + e.message); });
+    }
+    setView(state.view); updateRevBadge(); notifyDueReviews();
+  }
+
   function openSettings() {
     const cloud = DB.getCloud();
     const cloudStatus = cloud.lastSync
@@ -235,6 +298,10 @@
     const body = openSheet(`
       <button class="close-x">✕</button>
       <h3>设置</h3>
+      <div class="set-group">
+        <p class="set-title">账户</p>
+        <div id="accountBox"></div>
+      </div>
       <div class="set-group">
         <p class="set-title">数据迁移</p>
         <button class="set-row" id="setExport">
@@ -255,6 +322,7 @@
           <input class="set-input" id="cloudToken" type="password" placeholder="ghp_ 开头" value="${esc(cloud.token || '')}" autocomplete="off" />
           <label class="set-lbl">Gist ID</label>
           <input class="set-input" id="cloudGist" type="text" placeholder="gist 地址里的那串 ID" value="${esc(cloud.gistId || '')}" />
+          <label class="set-chk"><input type="checkbox" id="cloudAuto" ${cloud.autoSync ? 'checked' : ''}/> 自动同步（任何修改实时上传到该 Gist）</label>
           <div class="set-form-btns">
             <button class="btn small ghost" id="cloudSave">保存配置</button>
             <button class="btn small" id="cloudUp">☁ 上传同步</button>
@@ -262,6 +330,7 @@
             <button class="btn small ghost" id="cloudTest">🔍 测试连接</button>
           </div>
           <p class="cloud-status" id="cloudStatus">${cloudStatus}</p>
+          ${DB.getCurrentAccount() && DB.getCurrentAccount().name === 'lvcheng' ? '<p class="set-tip2" style="margin-top:8px">lvcheng 已开启自动同步：填入带 gist 权限的 Token 后即自动备份；Gist ID 已预填，一般无需改动。</p>' : ''}
         </div>
       </div>
       <div class="set-group">
@@ -326,11 +395,11 @@
 
     // 云端同步：保存配置 / 上传 / 下载
     $('#cloudSave').addEventListener('click', () => {
-      DB.setCloud({ token: $('#cloudToken').value.trim(), gistId: $('#cloudGist').value.trim() });
+      DB.setCloud({ token: $('#cloudToken').value.trim(), gistId: $('#cloudGist').value.trim(), autoSync: $('#cloudAuto').checked });
       toast('云端配置已保存 ✓');
     });
     $('#cloudUp').addEventListener('click', async () => {
-      DB.setCloud({ token: $('#cloudToken').value.trim(), gistId: $('#cloudGist').value.trim() }); // 先保存，确保用最新输入
+      DB.setCloud({ token: $('#cloudToken').value.trim(), gistId: $('#cloudGist').value.trim(), autoSync: $('#cloudAuto').checked }); // 先保存，确保用最新输入
       const btn = $('#cloudUp'); btn.disabled = true;
       try {
         await DB.gistUpload();
@@ -341,7 +410,7 @@
       finally { btn.disabled = false; }
     });
     $('#cloudDown').addEventListener('click', async () => {
-      DB.setCloud({ token: $('#cloudToken').value.trim(), gistId: $('#cloudGist').value.trim() }); // 先保存，确保用最新输入
+      DB.setCloud({ token: $('#cloudToken').value.trim(), gistId: $('#cloudGist').value.trim(), autoSync: $('#cloudAuto').checked }); // 先保存，确保用最新输入
       const btn = $('#cloudDown'); btn.disabled = true;
       try {
         await DB.gistDownload();
@@ -363,6 +432,28 @@
       } catch (e) { toast('连接失败：' + e.message); }
       finally { btn.disabled = false; }
     });
+
+    function renderAccountBox() {
+      const box = document.getElementById('accountBox'); if (!box) return;
+      const cur = DB.getCurrentAccount();
+      if (cur) {
+        box.innerHTML = `
+          <div class="set-row" style="cursor:default">
+            <span class="set-ico">👤</span><span class="set-label">当前账户</span><span class="set-val">${esc(cur.name)}</span>
+          </div>
+          <button class="set-row" id="accLogout"><span class="set-ico">⏏</span><span class="set-label">退出登录</span><span class="set-val">切到本地 / 其他账户</span></button>
+          <button class="set-row" id="accSwitch"><span class="set-ico">🔁</span><span class="set-label">切换 / 登录其他账户</span><span class="set-val">打开登录窗口</span></button>`;
+        $('#accLogout').addEventListener('click', () => { DB.logout(); closeSheet(); openLoginModal(); });
+        $('#accSwitch').addEventListener('click', () => { closeSheet(); openLoginModal(); });
+      } else {
+        box.innerHTML = `
+          <div class="set-row" style="cursor:default">
+            <span class="set-ico">🧭</span><span class="set-label">当前模式</span><span class="set-val">本地游客（不同步）</span>
+          </div>
+          <button class="set-row" id="accLogin"><span class="set-ico">🔐</span><span class="set-label">登录 / 注册账户</span><span class="set-val">开启按账户隔离与云端同步</span></button>`;
+        $('#accLogin').addEventListener('click', () => { closeSheet(); openLoginModal(); });
+      }
+    }
 
     // 学科管理：在设置内增 / 删 / 改，笔记本页实时同步
     function renderSetSubjList() {
@@ -397,6 +488,7 @@
       }
     });
     renderSetSubjList();
+    renderAccountBox();
   }
 
   /* ---------------- 错题本（折叠错题本 + 预览/筛选） ---------------- */
@@ -1102,7 +1194,7 @@
   }
 
   /* ---------------- 启动 ---------------- */
-  DB.seedIfEmpty();
-  setView('home');
-  notifyDueReviews();
+  DB.migrateLegacy();
+  DB.seedAccounts();
+  if (DB.getCurrentName()) afterLogin(); else openLoginModal();
 })();
