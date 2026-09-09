@@ -282,19 +282,59 @@
   function closeLoginModal() { const m = document.getElementById('loginMask'); if (m) m.hidden = true; }
   function afterLogin() {
     DB.seedIfEmpty();
-    const c = DB.getCloud();
-    if (c.autoSync && c.token && c.gistId) {
-      DB.gistDownload().then(() => { toast('已从云端同步 ✓'); setView(state.view); })
-        .catch(e => { toast('云端同步失败：' + e.message); });
+    const a = DB.getCurrentAccount();
+    if (a && !DB.getCloud().token) {
+      // 首次登录且本机尚无 Token：弹一次性引导（不在设置里，防止误改）
+      openCloudGuide();
+    } else {
+      const c = DB.getCloud();
+      if (c.autoSync && c.token && c.gistId) {
+        DB.gistDownload().then(() => { toast('已从云端同步 ✓'); setView(state.view); })
+          .catch(e => { toast('云端同步失败：' + e.message); });
+      }
     }
     setView(state.view); updateRevBadge(); notifyDueReviews();
   }
 
+  // 登录后一次性云端配置引导（lvcheng 仅填 Token；其余账号填 Token + Gist ID）。不在设置内，杜绝误改。
+  function openCloudGuide() {
+    const a = DB.getCurrentAccount(); if (!a) return;
+    const isLv = a.name === 'lvcheng';
+    const c = DB.getCloud();
+    openSheet(`
+      <button class="close-x">✕</button>
+      <h3>配置云端同步</h3>
+      <p class="set-tip2">${isLv ? 'lvcheng 账户将自动同步到专属云端数据库。只需粘贴一次 Token，之后每次修改自动备份（Token 仅存本机，不公开）。' : '为该账户配置 GitHub Gist 云端同步，Token 仅存本机。'}</p>
+      <div class="set-form">
+        <label class="set-lbl">GitHub Token${isLv ? '（lvcheng 专用）' : ''}</label>
+        <input class="set-input" id="guideToken" type="password" placeholder="ghp_ 开头" autocomplete="off" />
+        ${isLv ? '' : `
+        <label class="set-lbl">Gist ID</label>
+        <input class="set-input" id="guideGist" type="text" placeholder="gist 地址里的那串 ID" value="${esc(c.gistId || '')}" />
+        <label class="set-chk"><input type="checkbox" id="guideAuto" ${c.autoSync ? 'checked' : ''}/> 自动同步（任何修改实时上传）</label>`}
+        <div class="set-form-btns">
+          <button class="btn small" id="guideSave">保存并同步</button>
+          ${isLv ? '<button class="btn small ghost" id="guideSkip">稍后（暂不备份）</button>' : ''}
+        </div>
+        <p class="cloud-status" id="guideStatus"></p>
+      </div>`);
+    const save = async () => {
+      const token = $('#guideToken').value.trim();
+      if (!token) { $('#guideStatus').textContent = '请输入 Token'; return; }
+      const patch = { token };
+      if (!isLv) { patch.gistId = $('#guideGist').value.trim(); patch.autoSync = $('#guideAuto').checked; }
+      DB.setCloud(patch);
+      const btn = $('#guideSave'); btn.disabled = true;
+      try {
+        await DB.gistDownload().catch(() => DB.gistUpload()); // 先拉取已有数据，失败（如首次）则上传当前
+        closeSheet(); toast('云端已配置并同步 ✓'); setView(state.view);
+      } catch (e) { $('#guideStatus').textContent = '同步失败：' + e.message; btn.disabled = false; }
+    };
+    $('#guideSave').addEventListener('click', save);
+    if (isLv) $('#guideSkip').addEventListener('click', () => closeSheet());
+  }
+
   function openSettings() {
-    const cloud = DB.getCloud();
-    const cloudStatus = cloud.lastSync
-      ? ('上次同步：' + fmtDate(cloud.lastSync) + (cloud.lastResult === 'up' ? '（上传）' : '（下载）'))
-      : '尚未同步';
     const body = openSheet(`
       <button class="close-x">✕</button>
       <h3>设置</h3>
@@ -315,25 +355,6 @@
         <input type="file" id="importFile" accept="application/json,.json" hidden />
       </div>
       <div class="set-group">
-        <p class="set-title">云端同步</p>
-        <p class="set-tip2">用 GitHub Gist 跨设备同步。Token 仅存本机，建议用「只勾 gist 权限」的专用 Token。</p>
-        <div class="set-form">
-          <label class="set-lbl">GitHub Token</label>
-          <input class="set-input" id="cloudToken" type="password" placeholder="ghp_ 开头" value="${esc(cloud.token || '')}" autocomplete="off" />
-          <label class="set-lbl">Gist ID</label>
-          <input class="set-input" id="cloudGist" type="text" placeholder="gist 地址里的那串 ID" value="${esc(cloud.gistId || '')}" />
-          <label class="set-chk"><input type="checkbox" id="cloudAuto" ${cloud.autoSync ? 'checked' : ''}/> 自动同步（任何修改实时上传到该 Gist）</label>
-          <div class="set-form-btns">
-            <button class="btn small ghost" id="cloudSave">保存配置</button>
-            <button class="btn small" id="cloudUp">☁ 上传同步</button>
-            <button class="btn small ghost" id="cloudDown">⬇ 下载恢复</button>
-            <button class="btn small ghost" id="cloudTest">🔍 测试连接</button>
-          </div>
-          <p class="cloud-status" id="cloudStatus">${cloudStatus}</p>
-          ${DB.getCurrentAccount() && DB.getCurrentAccount().name === 'lvcheng' ? '<p class="set-tip2" style="margin-top:8px">lvcheng 已开启自动同步：填入带 gist 权限的 Token 后即自动备份；Gist ID 已预填，一般无需改动。</p>' : ''}
-        </div>
-      </div>
-      <div class="set-group">
         <p class="set-title">学科管理</p>
         <div id="setSubjList"></div>
         <button class="set-row" id="setSubjAdd">
@@ -352,7 +373,7 @@
           <span class="set-val">清空全部错题与关键词</span>
         </button>
       </div>
-      <p class="set-tip">数据保存在本设备浏览器中。换手机 / 清缓存前，请先「导出数据」备份；未来云端同步上线后可直接跨设备同步。</p>`);
+      <p class="set-tip">数据保存在本设备浏览器中。换手机 / 清缓存前，请先「导出数据」备份；已登录账户会自动云端同步。</p>`);
 
     $('#setExport').addEventListener('click', () => {
       try {
@@ -393,45 +414,7 @@
       setView('review');
     });
 
-    // 云端同步：保存配置 / 上传 / 下载
-    $('#cloudSave').addEventListener('click', () => {
-      DB.setCloud({ token: $('#cloudToken').value.trim(), gistId: $('#cloudGist').value.trim(), autoSync: $('#cloudAuto').checked });
-      toast('云端配置已保存 ✓');
-    });
-    $('#cloudUp').addEventListener('click', async () => {
-      DB.setCloud({ token: $('#cloudToken').value.trim(), gistId: $('#cloudGist').value.trim(), autoSync: $('#cloudAuto').checked }); // 先保存，确保用最新输入
-      const btn = $('#cloudUp'); btn.disabled = true;
-      try {
-        await DB.gistUpload();
-        const c = DB.getCloud();
-        $('#cloudStatus').textContent = '已上传 ✓ ' + fmtDate(c.lastSync);
-        toast('已上传到云端 ✓');
-      } catch (e) { toast('上传失败：' + e.message); }
-      finally { btn.disabled = false; }
-    });
-    $('#cloudDown').addEventListener('click', async () => {
-      DB.setCloud({ token: $('#cloudToken').value.trim(), gistId: $('#cloudGist').value.trim(), autoSync: $('#cloudAuto').checked }); // 先保存，确保用最新输入
-      const btn = $('#cloudDown'); btn.disabled = true;
-      try {
-        await DB.gistDownload();
-        const c = DB.getCloud();
-        $('#cloudStatus').textContent = '已下载恢复 ✓ ' + fmtDate(c.lastSync);
-        toast('已从云端恢复 ✓');
-        setView(state.view);
-      } catch (e) { toast('下载失败：' + e.message); }
-      finally { btn.disabled = false; }
-    });
-    $('#cloudTest').addEventListener('click', async () => {
-      // 先保存输入框，确保用最新填写的 Token / Gist ID 测试
-      DB.setCloud({ token: $('#cloudToken').value.trim(), gistId: $('#cloudGist').value.trim() });
-      const btn = $('#cloudTest'); btn.disabled = true;
-      try {
-        const res = await DB.gistTest();
-        $('#cloudStatus').textContent = '连接正常 ✓ 账号 @' + res.login + ' · ' + res.gist;
-        toast('连接正常 ✓ 账号 @' + res.login);
-      } catch (e) { toast('连接失败：' + e.message); }
-      finally { btn.disabled = false; }
-    });
+    // 云端同步已移至「登录后一次性引导」，设置内不再暴露可改的配置（防止误改）
 
     function renderAccountBox() {
       const box = document.getElementById('accountBox'); if (!box) return;
