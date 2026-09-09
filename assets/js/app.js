@@ -502,31 +502,32 @@
     const allOpen = subjects.length > 0 && subjects.every(s => expanded[s]);
 
     // 筛选模式下，只展示「有符合筛选错题」的学科笔记本，保持界面紧凑
-    const subjectErrs = s => DB.getErrors(Object.assign({ subject: s }, hasFilter ? state.filter : {}));
-    const showSubjects = hasFilter ? subjects.filter(s => subjectErrs(s).length > 0) : subjects;
+    const showSubjects = hasFilter ? subjects.filter(s => listSubjectErrs(s).length > 0) : subjects;
 
     $('#view').innerHTML = `
-      <div class="nb-tools">
-        <button class="btn ghost" id="openFilter">⚙ 筛选${filterLabel()}</button>
-        <button class="btn ghost" id="toggleSelect">${state.selectMode ? '✓ 完成' : '☑ 勾选'}</button>
+      <div class="nb-tools nb-row1">
+        <button class="btn ghost" id="openFilter">筛选${filterLabel()}</button>
+        <button class="btn ghost" id="toggleSelect">${state.selectMode ? '完成' : '勾选'}</button>
         <button class="btn ghost" id="selectAll">全选</button>
         <button class="btn ghost" id="toggleAll">${allOpen ? '收起' : '展开'}</button>
       </div>
       ${state.selectMode ? `
-      <div class="nb-tools nb-act" style="margin-top:8px">
-        <span class="nb-cnt">已选 ${state.selected.size} 道</span>
-        <button class="btn ghost nb-danger" id="delSel">🗑 删除选中</button>
-        <button class="btn" id="expSel">📄 导出PDF</button>
+      <p class="nb-selcnt">已选 ${state.selected.size} 道</p>
+      <div class="nb-tools nb-act">
+        <button class="btn ghost nb-danger" id="delSel">删除选中</button>
+        <button class="btn" id="expSel">导出PDF</button>
         <button class="btn ghost" id="selNone">清空选择</button>
       </div>` : ''}
       <p class="list-hint">点开任一错题本可预览内容 · 共 ${total} 道 · 点 ✕ 可删减${hasFilter ? '（已按筛选隐藏无匹配学科）' : ''}</p>
       ${showSubjects.length ? showSubjects.map(s => {
         const errsAll = DB.getErrors({ subject: s });
-        const errs = subjectErrs(s);
+        const errs = listSubjectErrs(s);
         const isOpen = !!expanded[s];
+        const allSel = errs.length > 0 && errs.every(e => state.selected.has(e.id));
         return `
         <div class="book">
           <div class="book-head" data-s="${s}">
+            ${state.selectMode ? `<input type="checkbox" class="book-check" data-s="${s}" ${allSel ? 'checked' : ''} aria-label="全选本本"/>` : ''}
             ${subjTag(s)}
             <span class="book-cnt">${errsAll.length} 道</span>
             <span class="book-chev">${isOpen ? '▾' : '▸'}</span>
@@ -548,7 +549,7 @@
     $('#selectAll').addEventListener('click', () => {
       state.selectMode = true;
       const ids = [];
-      showSubjects.forEach(s => subjectErrs(s).forEach(e => ids.push(e.id)));
+      showSubjects.forEach(s => listSubjectErrs(s).forEach(e => ids.push(e.id)));
       state.selected = new Set(ids);
       renderList();
     });
@@ -578,6 +579,7 @@
     }));
     bindItems();
     bindItemChecks();
+    bindBookChecks();
   }
   // 勾选模式：卡片复选框切换选中状态
   function bindItemChecks() {
@@ -586,14 +588,35 @@
       const id = c.dataset.id;
       if (c.checked) state.selected.add(id); else state.selected.delete(id);
       c.closest('.item')?.classList.toggle('sel', c.checked);
-      const cnt = document.querySelector('.nb-cnt'); if (cnt) cnt.textContent = '已选 ' + state.selected.size + ' 道';
+      const cnt = document.querySelector('.nb-selcnt'); if (cnt) cnt.textContent = '已选 ' + state.selected.size + ' 道';
     }));
+  }
+  // 勾选模式：每个笔记本前的复选框，一键全选/取消本本错题
+  function bindBookChecks() {
+    $$('.book-check').forEach(c => {
+      const s = c.dataset.s;
+      const errs = listSubjectErrs(s);
+      const sel = errs.filter(e => state.selected.has(e.id)).length;
+      c.indeterminate = sel > 0 && sel < errs.length;
+      c.addEventListener('click', e => {
+        e.stopPropagation();
+        if (c.checked) errs.forEach(e => state.selected.add(e.id));
+        else errs.forEach(e => state.selected.delete(e.id));
+        renderList();
+      });
+    });
   }
   function filterLabel() {
     const f = state.filter; let n = 0;
     if (state.subject && state.subject !== '全部') n++;
     if (f.kpId) n++; if (f.srcId) n++; if (f.mastery) n++;
     return n ? `（${n}）` : '';
+  }
+  // 取某学科在当前筛选下匹配的错题（笔记本渲染与勾选共用）
+  function listSubjectErrs(s) {
+    const f = state.filter;
+    const hasFilter = !!(f.kpId || f.srcId || f.mastery || (state.subject && state.subject !== '全部'));
+    return DB.getErrors(Object.assign({ subject: s }, hasFilter ? f : {}));
   }
 
   /* ---------------- 高频词：按错题中的使用次数排序，取前 N 个 ---------------- */
