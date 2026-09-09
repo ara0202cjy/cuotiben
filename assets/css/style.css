@@ -170,6 +170,11 @@ body {
 .item.sel { border-color: var(--primary); background: var(--primary-soft); }
 /* 笔记本置顶工具栏：筛选 / 勾选 / 全选 / 展开折叠 */
 .nb-tools { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.nb-row1 { flex-wrap: nowrap; }
+.nb-row1 .btn { flex: 1; min-width: 0; padding-left: 6px; padding-right: 6px; }
+.nb-act { flex-wrap: nowrap; margin-top: 8px; }
+.nb-act .btn { flex: 1; min-width: 0; }
+.nb-selcnt { font-size: 12px; color: var(--ink-2); margin: 4px 0 0; }
 .nb-act { align-items: center; }
 .nb-cnt { font-size: 12px; color: var(--ink-2); flex: 1 1 auto; }
 .nb-danger { color: #d17878; border-color: #f0c9c9; }
@@ -349,6 +354,7 @@ body {
 .book-head {
   display: flex; align-items: center; gap: 10px; padding: 15px 16px; cursor: pointer;
 }
+.book-check { width: 17px; height: 17px; flex: 0 0 auto; accent-color: var(--primary); margin: 0; cursor: pointer; }
 .book-head .subj-tag { font-size: 13px; }
 .book-cnt { font-size: 12px; color: var(--ink-2); }
 .book-chev { margin-left: auto; color: var(--ink-3); font-size: 14px; }
