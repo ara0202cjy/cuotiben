@@ -201,6 +201,18 @@ body {
 .kw .x { opacity: .6; font-weight: 700; }
 .kw-add { color: var(--primary-deep); border-style: dashed; }
 
+/* 筛选面板：标题与选项同行，四组横排自动换行，更紧凑 */
+.f-row { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: flex-start; margin-bottom: 14px; }
+.f-group { display: flex; align-items: center; gap: 8px; flex: 1 1 auto; min-width: 0; }
+.f-group > label {
+  flex: 0 0 auto; margin: 0; white-space: nowrap;
+  font-size: 12.5px; color: var(--ink-2); font-weight: 600;
+}
+.f-group .kw-box { flex: 1 1 auto; }
+/* 高频词频次角标 */
+.kw .cnt { font-size: 11px; opacity: .65; font-weight: 600; }
+.kw.active .cnt { opacity: .85; }
+
 .btn {
   width: 100%; border: none; border-radius: 14px; padding: 14px;
   font-size: 16px; font-weight: 700; cursor: pointer; background: var(--primary); color: #fff;
