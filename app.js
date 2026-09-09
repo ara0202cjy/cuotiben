@@ -126,6 +126,8 @@ async function loginAccount(name) {
   currentAccount = name; saveSession();
   loadState();
   if (window.Sync) Sync.reload();
+  // 登录后先从云端拉取并合并，避免空本地数据覆盖历史进度
+  if (window.Sync && Sync.on()) { try { await Sync.sync(); } catch (e) { } }
   toast('已登录：' + name);
   if (typeof PAGES !== 'undefined' && CUR) PAGES[CUR]();
   openSettings();
@@ -207,6 +209,7 @@ async function seedAccounts() {
     });
     currentAccount = 'ara0202cjy'; saveSession(); loadState();
     if (window.Sync) Sync.reload();
+    if (window.Sync && Sync.on()) { try { await Sync.sync(); } catch (e) { } }
   }
 }
 window.seedAccounts = seedAccounts;
