@@ -35,8 +35,8 @@ body.mode-ipad { font-size: 16px; }
 .mode-ipad .book-body .item { margin-bottom: 0; }
 .mode-ipad .book-filter { grid-column: 1 / -1; }
 
-/* 复习卡 → 2 列网格 */
-.mode-ipad #revList { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+/* 复习卡 → 3 列网格 */
+.mode-ipad #revList { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
 .mode-ipad #revList .rev-item { margin-bottom: 0; }
 
 /* 弹层在平板下更宽一些 */
