@@ -1057,6 +1057,11 @@
     const fuzzy = errs.filter(e => !DB.isMastered(e) && (e.mastery || 'unknown') === 'fuzzy').length;
     const unknown = errs.length - known - fuzzy;
     const pct = n => errs.length ? Math.round(n / errs.length * 100) : 0;
+    const wrongBuckets = [0, 0, 0, 0, 0, 0];
+    errs.forEach(e => { const w = (e.reviews || []).filter(r => !r.correct).length; wrongBuckets[w >= 5 ? 5 : w]++; });
+    const maxW = Math.max(1, ...wrongBuckets);
+    const wrongLabels = ['0次', '1次', '2次', '3次', '4次', '5次以上'];
+    const wrongHTML = wrongLabels.map((lb, i) => `<div class="ms-mrow"><span>${lb}</span><div class="bar"><i style="width:${Math.round(wrongBuckets[i] / maxW * 100)}%;background:var(--bad)"></i></div><b>${wrongBuckets[i]}</b></div>`).join('');
     const subChips = ['全部', ...subs].map(s => `<button class="chip ${s === f.subject ? 'active' : ''}" data-sub="${esc(s)}">${esc(s)}</button>`).join('');
     const kpChips = kps.length ? kps.map(k => `<button class="chip ${k.id === f.kpId ? 'active' : ''}" data-kp="${k.id}">${esc(k.name)}</button>`).join('') : '<span class="ms-empty">暂无知识点</span>';
     const srcChips = srcs.length ? srcs.map(k => `<button class="chip ${k.id === f.srcId ? 'active' : ''}" data-src="${k.id}">${esc(k.name)}</button>`).join('') : '<span class="ms-empty">暂无来源</span>';
@@ -1082,6 +1087,10 @@
             <div class="ms-mrow"><span>部分掌握</span><div class="bar"><i style="width:${pct(fuzzy)}%;background:#c08f2e"></i></div><b>${fuzzy}</b></div>
             <div class="ms-mrow"><span>已掌握</span><div class="bar"><i style="width:${pct(known)}%;background:#5f9c78"></i></div><b>${known}</b></div>
           </div>
+        </div>
+        <div class="ms-block" style="margin-top:14px">
+          <p class="card-h">错误次数分布</p>
+          <div class="ms-mast ms-wrong">${wrongHTML}</div>
         </div>
       </div>`;
   }
