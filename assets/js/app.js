@@ -554,30 +554,53 @@
     return n ? `（${n}）` : '';
   }
 
+  /* ---------------- 高频词：按错题中的使用次数排序，取前 N 个 ---------------- */
+  function topKeywords(type, lockSubject, currentId, limit) {
+    const cnt = new Map();
+    DB.getErrors().forEach(e => {
+      const id = type === 'kp' ? e.kpId : e.srcId;
+      if (!id) return;
+      if (lockSubject && e.subject !== lockSubject) return;
+      cnt.set(id, (cnt.get(id) || 0) + 1);
+    });
+    const list = DB.getKeywords(type)
+      .filter(k => (!lockSubject || k.subject === lockSubject) && (cnt.get(k.id) || 0) > 0)
+      .sort((a, b) => (cnt.get(b.id) || 0) - (cnt.get(a.id) || 0));
+    const top = list.slice(0, limit || 6).map(k => ({ id: k.id, name: k.name, count: cnt.get(k.id) || 0 }));
+    // 当前已选中的词若不在高频内也要保留，避免选中项“消失”
+    if (currentId && !top.some(k => k.id === currentId)) {
+      const cur = DB.getKeywords(type).find(k => k.id === currentId);
+      if (cur) top.push({ id: cur.id, name: cur.name, count: cnt.get(cur.id) || 0 });
+    }
+    return top;
+  }
+
   /* ---------------- 筛选（可锁定某一错题本） ---------------- */
   function openFilter(lockSubject) {
     const f = state.filter;
     const subjects = lockSubject ? [lockSubject] : ['全部', ...DB.getSubjects()];
-    const kpList = lockSubject ? DB.getKeywords('kp').filter(k => k.subject === lockSubject) : DB.getKeywords('kp');
-    const srcList = lockSubject ? DB.getKeywords('src').filter(k => k.subject === lockSubject) : DB.getKeywords('src');
+    const kpTop = topKeywords('kp', lockSubject, f.kpId, 6);
+    const srcTop = topKeywords('src', lockSubject, f.srcId, 6);
     const body = openSheet(`
       <button class="close-x">✕</button>
       <h3>${lockSubject ? '筛选「' + lockSubject + '」本内容' : '筛选错题'}</h3>
-      ${lockSubject ? '' : `<div class="field"><label>按学科</label><div class="kw-box" id="fSubj">
-        ${subjects.map(s => `<span class="kw ${state.subject === s ? 'active' : ''}" data-subj="${s}">${s}</span>`).join('')}
-      </div></div>`}
-      <div class="field"><label>按知识点${lockSubject ? '（' + lockSubject + '）' : ''}</label><div class="kw-box" id="fKp">
-        <span class="kw ${!f.kpId ? 'active' : ''}" data-kp="">不限</span>
-        ${kpList.map(k => `<span class="kw ${f.kpId === k.id ? 'active' : ''}" data-kp="${k.id}">${k.name}</span>`).join('')}
-      </div></div>
-      <div class="field"><label>按来源${lockSubject ? '（' + lockSubject + '）' : ''}</label><div class="kw-box" id="fSrc">
-        <span class="kw ${!f.srcId ? 'active' : ''}" data-src="">不限</span>
-        ${srcList.map(k => `<span class="kw ${f.srcId === k.id ? 'active' : ''}" data-src="${k.id}">${k.name}</span>`).join('')}
-      </div></div>
-      <div class="field"><label>按掌握情况</label><div class="kw-box" id="fM">
-        <span class="kw ${!f.mastery ? 'active' : ''}" data-m="">不限</span>
-        ${Object.values(DB.MASTERY).map(m => `<span class="kw ${f.mastery === m.key ? 'active' : ''}" data-m="${m.key}">${m.label}</span>`).join('')}
-      </div></div>
+      <div class="f-row">
+        ${lockSubject ? '' : `<div class="f-group"><label>学科</label><div class="kw-box" id="fSubj">
+          ${subjects.map(s => `<span class="kw ${state.subject === s ? 'active' : ''}" data-subj="${esc(s)}">${esc(s)}</span>`).join('')}
+        </div></div>`}
+        <div class="f-group"><label>知识点</label><div class="kw-box" id="fKp">
+          <span class="kw ${!f.kpId ? 'active' : ''}" data-kp="">不限</span>
+          ${kpTop.map(k => `<span class="kw ${f.kpId === k.id ? 'active' : ''}" data-kp="${k.id}">${esc(k.name)}<span class="cnt">${k.count}</span></span>`).join('')}
+        </div></div>
+        <div class="f-group"><label>来源</label><div class="kw-box" id="fSrc">
+          <span class="kw ${!f.srcId ? 'active' : ''}" data-src="">不限</span>
+          ${srcTop.map(k => `<span class="kw ${f.srcId === k.id ? 'active' : ''}" data-src="${k.id}">${esc(k.name)}<span class="cnt">${k.count}</span></span>`).join('')}
+        </div></div>
+        <div class="f-group"><label>掌握</label><div class="kw-box" id="fM">
+          <span class="kw ${!f.mastery ? 'active' : ''}" data-m="">不限</span>
+          ${Object.values(DB.MASTERY).map(m => `<span class="kw ${f.mastery === m.key ? 'active' : ''}" data-m="${m.key}">${m.label}</span>`).join('')}
+        </div></div>
+      </div>
       <div class="btn-row">
         <button class="btn ghost" id="fReset">重置</button>
         <button class="btn" id="fApply">应用</button>
