@@ -134,8 +134,10 @@
     fuzzy:   { key: 'fuzzy',   label: '部分掌握', cls: 'm-fuzzy' },
     known:   { key: 'known',   label: '已掌握', cls: 'm-known' },
   };
-  // 语文专属：字词默写（录入后自动注音）
+  // 语文专属：字词默写 / 字词（录入后自动注音）
   const CHINESE_DICT_KP = '字词默写';
+  const CHINESE_DICT_KPS = ['字词默写', '字词'];
+  function isChineseDictKp(name) { return CHINESE_DICT_KPS.includes(name); }
 
   const STORE = {
     errors: 'cb_errors_v1',
@@ -308,6 +310,7 @@
       addKeyword('kp', '二次函数', '数学'),
       addKeyword('kp', '阅读理解', '语文'),
       addKeyword('kp', '字词默写', '语文'),
+      addKeyword('kp', '字词', '语文'),
       addKeyword('kp', '时态', '英语'),
     ];
     const src = [
@@ -550,7 +553,7 @@
     registerAccount, verifyAccount, setCurrentName, logout,
     setAccountCloud, getCloud, setCloud, seedAccounts, migrateLegacy,
     // 业务
-    getSubjects, addSubject, deleteSubject, renameSubject, MASTERY, CHINESE_DICT_KP,
+    getSubjects, addSubject, deleteSubject, renameSubject, MASTERY, CHINESE_DICT_KP, isChineseDictKp,
     getKeywords, addKeyword, updateKeyword, deleteKeyword,
     getErrors, getError, addError, updateError, deleteError,
     dueDaysForReview, nextDueDate, isMastered, dueReviews, recordReview,
