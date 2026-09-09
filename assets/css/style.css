@@ -308,6 +308,25 @@ body {
 .menu .row .mt { flex: 1; }
 .menu .row .mr { color: var(--ink-3); font-size: 13px; }
 
+/* 我的 - 内联掌握情况统计面板（第一行，默认展开） */
+.ms-panel { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow-soft); overflow: hidden; margin-bottom: 14px; border: 1px solid var(--line); }
+.ms-head { display: flex; align-items: center; justify-content: space-between; padding: 15px 16px; cursor: pointer; font-weight: 700; }
+.ms-chev { color: var(--ink-3); font-size: 14px; }
+.ms-body { padding: 0 16px 16px; }
+.ms-filters { display: flex; flex-direction: column; gap: 10px; margin-bottom: 4px; }
+.ms-frow { display: flex; align-items: flex-start; gap: 10px; }
+.ms-fl { flex: 0 0 52px; font-size: 13px; color: var(--ink-2); padding-top: 6px; }
+.ms-frow .kw-box { flex: 1; }
+.ms-empty { font-size: 12px; color: var(--ink-3); padding-top: 4px; }
+.ms-stat .card-h { margin-top: 14px; }
+.ms-mast { display: flex; flex-direction: column; gap: 8px; }
+.ms-mrow { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.ms-mrow > span { width: 64px; color: var(--ink-2); flex: 0 0 auto; }
+.ms-mrow .bar { flex: 1; height: 10px; background: var(--surface-2); border-radius: 6px; overflow: hidden; }
+.ms-mrow .bar i { display: block; height: 100%; }
+.ms-mrow > b { width: 26px; text-align: right; flex: 0 0 auto; }
+.kw-cnt { font-size: 11px; color: var(--ink-3); margin-left: 6px; }
+
 /* ============ 弹层 sheet ============ */
 .sheet-mask {
   position: fixed; inset: 0; background: rgba(40,55,48,.4);
