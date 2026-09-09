@@ -1,35 +1,113 @@
 /* =========================================================
  * 数据层：错题 / 关键词 模型 + localStorage 持久化
  * 纯前端，无需后端，可直接本地预览。后续可替换为云端同步。
+ *
+ * 2026-09-09 新增：账户体系
+ *  - 每个账户拥有独立的数据命名空间（错题 / 关键词 / 科目）
+ *  - 每个账户独立保存云端配置（token / gistId / autoSync）
+ *  - 开启 autoSync 后，数据增删改自动上传到该账户的 Gist
+ *  - 内置账户 lvcheng / 000000：已开启自动同步到匹配 Gist
  * ========================================================= */
 (function (global) {
   'use strict';
 
-  const SUBJECTS_KEY = 'cb_subjects_v1';
+  /* ---------- 账户系统 ---------- */
+  const ACCOUNTS_KEY = 'cb_accounts_v1';
+  const CLOUD_KEY = 'cb_cloud_v1';            // 本地游客模式下的云端配置
+  const LVCHENG = { name: 'lvcheng', pass: '000000', gistId: 'f133c0baa8e6259ff36df4e584679544' };
+
+  // 简单的密码混淆（避免明文，非高强度加密；本机个人工具足够）
+  function hashPwd(s) {
+    let h = 2166136261; s = String(s || '');
+    for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+    return 'h' + (h >>> 0).toString(16);
+  }
+  function getAccStore() { return read(ACCOUNTS_KEY, { list: [], current: null }); }
+  function setAccStore(o) { write(ACCOUNTS_KEY, o); }
+  function getAccounts() { return getAccStore().list.slice(); }
+  function getAccount(name) { return getAccStore().list.find(a => a.name === name) || null; }
+  function getCurrentName() { return getAccStore().current || null; }
+  function getCurrentAccount() { const n = getCurrentName(); return n ? getAccount(n) : null; }
+  function updateAccount(a) { const s = getAccStore(); const i = s.list.findIndex(x => x.name === a.name); if (i >= 0) { s.list[i] = a; setAccStore(s); } }
+  function setCurrentName(name) { const s = getAccStore(); s.current = name || null; setAccStore(s); }
+  function registerAccount(name, pass) {
+    name = (name || '').trim(); pass = (pass || '');
+    if (!name) throw new Error('账户名不能为空');
+    if (getAccount(name)) throw new Error('账户「' + name + '」已存在');
+    const a = { name, pass: hashPwd(pass), cloud: { token: '', gistId: '', autoSync: false }, createdAt: now() };
+    const s = getAccStore(); s.list.push(a); setAccStore(s); return a;
+  }
+  function verifyAccount(name, pass) {
+    const a = getAccount(name); if (!a) return false;
+    return a.pass === hashPwd(pass);
+  }
+  function setAccountCloud(name, patch) {
+    const a = getAccount(name); if (!a) return;
+    a.cloud = Object.assign({}, a.cloud || {}, patch); updateAccount(a);
+  }
+  function logout() { setCurrentName(null); }
+
+  // 云端配置：有当前账户则用该账户，否则用本地游客配置
+  function getCloud() { const a = getCurrentAccount(); if (a) return a.cloud || {}; return read(CLOUD_KEY, {}); }
+  function setCloud(patch) {
+    const a = getCurrentAccount();
+    if (a) { a.cloud = Object.assign({}, a.cloud || {}, patch); updateAccount(a); }
+    else write(CLOUD_KEY, Object.assign({}, getCloud(), patch));
+  }
+
+  // 预置内置账户 lvcheng / 000000，并开启自动同步到匹配 Gist（token 由用户在设置里填入）
+  function seedAccounts() {
+    const s = getAccStore();
+    if (!s.list.some(a => a.name === LVCHENG.name)) {
+      s.list.push({
+        name: LVCHENG.name, pass: hashPwd(LVCHENG.pass),
+        cloud: { token: '', gistId: LVCHENG.gistId, autoSync: true }, createdAt: now(),
+      });
+      setAccStore(s);
+    }
+  }
+  // 旧版（未登录）数据迁移到「本地游客」命名空间，避免丢失
+  function migrateLegacy() {
+    const s = getAccStore();
+    if (s.list.length > 0) return; // 已有账户，不再迁移
+    const hasLegacy = localStorage.getItem('cb_errors_v1') || localStorage.getItem('cb_keywords_v1') || localStorage.getItem('cb_subjects_v1');
+    if (!hasLegacy) return;
+    const move = (oldK, newK) => { const v = localStorage.getItem(oldK); if (v !== null) { localStorage.setItem(newK, v); localStorage.removeItem(oldK); } };
+    move('cb_errors_v1', K('errors'));
+    move('cb_keywords_v1', K('keywords'));
+    move('cb_subjects_v1', K('subjects'));
+  }
+
+  /* ---------- 当前命名空间下的存储键 ---------- */
+  // 账户模式：a_<账户名>；本地游客：local
+  function curNs() { const a = getCurrentAccount(); return a ? 'a_' + a.name : 'local'; }
+  function K(which) { return 'cb_' + curNs() + '_' + which + '_v1'; }
+
   const DEFAULT_SUBJECTS = ['语文', '数学', '英语', '其他'];
   // 科目动态管理：自动建立语数英三科错题本，可按需增删科目
   function getSubjects() {
-    let s = read(SUBJECTS_KEY, null);
-    if (!s) { s = DEFAULT_SUBJECTS.slice(); write(SUBJECTS_KEY, s); }
+    let s = read(K('subjects'), null);
+    if (!s) { s = DEFAULT_SUBJECTS.slice(); write(K('subjects'), s); }
     return s;
   }
   function addSubject(name) {
     const s = getSubjects();
     name = (name || '').trim();
     if (!name || s.includes(name)) return null;
-    s.push(name); write(SUBJECTS_KEY, s); return name;
+    s.push(name); write(K('subjects'), s); autoSyncTick(); return name;
   }
   function deleteSubject(name) {
     const s = getSubjects().filter(x => x !== name);
-    write(SUBJECTS_KEY, s);
+    write(K('subjects'), s);
     // 同步清理该科的关键词与错题引用
-    let list = read(STORE.keywords, []);
+    let list = read(K('keywords'), []);
     const removed = list.filter(k => k.subject === name).map(k => k.id);
     list = list.filter(k => k.subject !== name);
-    write(STORE.keywords, list);
-    const errs = read(STORE.errors, []);
+    write(K('keywords'), list);
+    const errs = read(K('errors'), []);
     errs.forEach(e => { if (removed.includes(e.kpId)) e.kpId = null; if (removed.includes(e.srcId)) e.srcId = null; });
-    write(STORE.errors, errs);
+    write(K('errors'), errs);
+    autoSyncTick();
   }
   // 重命名科目：同步更新错题、关键词的 subject 引用
   function renameSubject(oldName, newName) {
@@ -39,13 +117,14 @@
     if (s.includes(newName)) return false; // 新名已存在
     const idx = s.indexOf(oldName);
     if (idx === -1) return false;
-    s[idx] = newName; write(SUBJECTS_KEY, s);
-    const list = read(STORE.keywords, []);
+    s[idx] = newName; write(K('subjects'), s);
+    const list = read(K('keywords'), []);
     list.forEach(k => { if (k.subject === oldName) k.subject = newName; });
-    write(STORE.keywords, list);
-    const errs = read(STORE.errors, []);
+    write(K('keywords'), list);
+    const errs = read(K('errors'), []);
     errs.forEach(e => { if (e.subject === oldName) e.subject = newName; });
-    write(STORE.errors, errs);
+    write(K('errors'), errs);
+    autoSyncTick();
     return true;
   }
   const MASTERY = {
@@ -80,30 +159,31 @@
    *  type 'kp' = 知识点；'src' = 错题来源
    */
   function getKeywords(type) {
-    const list = read(STORE.keywords, []);
+    const list = read(K('keywords'), []);
     return type ? list.filter(k => k.type === type) : list;
   }
   function addKeyword(type, name, subject) {
-    const list = read(STORE.keywords, []);
+    const list = read(K('keywords'), []);
     const kw = { id: uid(), type, name: name.trim(), subject: subject || null };
-    list.push(kw); write(STORE.keywords, list); return kw;
+    list.push(kw); write(K('keywords'), list); autoSyncTick(); return kw;
   }
   function updateKeyword(id, name) {
-    const list = read(STORE.keywords, []);
+    const list = read(K('keywords'), []);
     const k = list.find(x => x.id === id); if (k) k.name = name.trim();
-    write(STORE.keywords, list); return k;
+    write(K('keywords'), list); autoSyncTick(); return k;
   }
   function deleteKeyword(id) {
-    let list = read(STORE.keywords, []);
+    let list = read(K('keywords'), []);
     list = list.filter(x => x.id !== id);
-    write(STORE.keywords, list);
+    write(K('keywords'), list);
     // 同时清理错题中对该关键词的引用
-    const errs = read(STORE.errors, []);
+    const errs = read(K('errors'), []);
     errs.forEach(e => {
       if (e.kpId === id) e.kpId = null;
       if (e.srcId === id) e.srcId = null;
     });
-    write(STORE.errors, errs);
+    write(K('errors'), errs);
+    autoSyncTick();
   }
 
   /* ---------- 错题 ---------- */
@@ -118,7 +198,7 @@
    * 已掌握判定：连续答对 3 次 或 累计答对 5 次（手动标 known 也算）。
    */
   function getErrors(filter) {
-    let list = read(STORE.errors, []);
+    let list = read(K('errors'), []);
     if (filter && filter.subject && filter.subject !== '全部') {
       list = list.filter(e => e.subject === filter.subject);
     }
@@ -133,11 +213,11 @@
   }
 
   function getError(id) {
-    return read(STORE.errors, []).find(e => e.id === id);
+    return read(K('errors'), []).find(e => e.id === id);
   }
 
   function addError(data) {
-    const list = read(STORE.errors, []);
+    const list = read(K('errors'), []);
     const created = now();
     const err = Object.assign({
       id: uid(),
@@ -147,20 +227,20 @@
       kpId: null, srcId: null, mastery: 'unknown',
       answer: '', reviews: [],
     }, data, { createdAt: (data && data.createdAt) ? data.createdAt : created });
-    list.push(err); write(STORE.errors, list); return err;
+    list.push(err); write(K('errors'), list); autoSyncTick(); return err;
   }
 
   function updateError(id, patch) {
-    const list = read(STORE.errors, []);
+    const list = read(K('errors'), []);
     const e = list.find(x => x.id === id);
     if (e) Object.assign(e, patch);
-    write(STORE.errors, list); return e;
+    write(K('errors'), list); autoSyncTick(); return e;
   }
 
   function deleteError(id) {
-    let list = read(STORE.errors, []);
+    let list = read(K('errors'), []);
     list = list.filter(x => x.id !== id);
-    write(STORE.errors, list);
+    write(K('errors'), list); autoSyncTick();
   }
 
   /* ---------- 复习计划（间隔推送 + 掌握判定） ---------- */
@@ -187,7 +267,7 @@
   // 待复习列表（未掌握且已到推送时间），按到期先后排序
   function dueReviews() {
     const nowT = Date.now();
-    const list = read(STORE.errors, []);
+    const list = read(K('errors'), []);
     const due = list.filter(e => !isMastered(e) && nextDueDate(e) <= nowT);
     return due.sort((a, b) => nextDueDate(a) - nextDueDate(b));
   }
@@ -198,12 +278,15 @@
     e.reviews = e.reviews || [];
     e.reviews.push({ date: now(), correct: !!correct });
     updateError(id, e);
+    autoSyncTick();
   }
 
   /* ---------- 种子数据（首次打开时填充，方便预览框架） ---------- */
   function seedIfEmpty() {
-    if (localStorage.getItem(STORE.errors) || localStorage.getItem(STORE.keywords)) return;
-    getSubjects(); // 自动建立语数英三科错题本
+    getSubjects(); // 自动建立语数英三科错题本（按当前命名空间）
+    // 账户模式下保持干净，不预置示例错题；仅本地游客首次打开时预置 2 条示例
+    if (getCurrentAccount()) return;
+    if (localStorage.getItem(K('errors')) || localStorage.getItem(K('keywords'))) return;
     const kp = [
       addKeyword('kp', '二次函数', '数学'),
       addKeyword('kp', '阅读理解', '语文'),
@@ -239,19 +322,19 @@
   function seedReviewDemo(force) {
     const day = DAY, nowT = Date.now();
     if (force) {
-      const keep = read(STORE.errors, []).filter(e => (e.id || '').indexOf('demo_') !== 0);
-      write(STORE.errors, keep);
+      const keep = read(K('errors'), []).filter(e => (e.id || '').indexOf('demo_') !== 0);
+      write(K('errors'), keep);
     } else {
-      const list = read(STORE.errors, []);
+      const list = read(K('errors'), []);
       if (list.some(e => (e.id || '').indexOf('demo_') === 0)) return false;
     }
     const ago = d => new Date(nowT - d * day).toISOString();
     const kpOf = (name, subject) => {
-      const ex = read(STORE.keywords, []).find(k => k.type === 'kp' && k.name === name && k.subject === subject);
+      const ex = read(K('keywords'), []).find(k => k.type === 'kp' && k.name === name && k.subject === subject);
       return ex ? ex.id : addKeyword('kp', name, subject).id;
     };
     const srcOf = (name, subject) => {
-      const ex = read(STORE.keywords, []).find(k => k.type === 'src' && k.name === name && k.subject === subject);
+      const ex = read(K('keywords'), []).find(k => k.type === 'src' && k.name === name && k.subject === subject);
       return ex ? ex.id : addKeyword('src', name, subject).id;
     };
     const mk = o => Object.assign({
@@ -295,9 +378,10 @@
         createdAt: ago(40),
         reviews: [{ date: ago(38), correct: true }, { date: ago(33), correct: true }, { date: ago(28), correct: true }] }),
     ];
-    const list = read(STORE.errors, []);
+    const list = read(K('errors'), []);
     list.push(...items);
-    write(STORE.errors, list);
+    write(K('errors'), list);
+    autoSyncTick();
     return items.length;
   }
 
@@ -318,29 +402,29 @@
       app: 'cuotiben',
       version: 1,
       exportedAt: now(),
+      account: getCurrentName(),
       subjects: getSubjects(),
-      keywords: read(STORE.keywords, []),
-      errors: read(STORE.errors, []),
+      keywords: read(K('keywords'), []),
+      errors: read(K('errors'), []),
     };
   }
   function exportData() { return snapshot(); }
   function importData(data) {
     if (!data || typeof data !== 'object') throw new Error('文件不是有效数据');
     if (!Array.isArray(data.errors) || !Array.isArray(data.keywords)) throw new Error('缺少错题或关键词数据');
-    write(SUBJECTS_KEY, (Array.isArray(data.subjects) && data.subjects.length) ? data.subjects : DEFAULT_SUBJECTS.slice());
-    write(STORE.keywords, data.keywords);
-    write(STORE.errors, data.errors);
+    write(K('subjects'), (Array.isArray(data.subjects) && data.subjects.length) ? data.subjects : DEFAULT_SUBJECTS.slice());
+    write(K('keywords'), data.keywords);
+    write(K('errors'), data.errors);
+    autoSyncTick();
   }
   function clearAll() {
-    [SUBJECTS_KEY, STORE.errors, STORE.keywords].forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
+    [K('subjects'), K('errors'), K('keywords')].forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
     getSubjects(); // 重建默认科目，保证应用仍可正常使用
   }
+
   /* ---------- 云端同步（GitHub Gist，纯前端，无需后端） ---------- */
   // 配置存本地：{ token, gistId, lastSync, lastResult }
-  const CLOUD_KEY = 'cb_cloud_v1';
   const GIST_FILE = 'cuotiben.json';
-  function getCloud() { return read(CLOUD_KEY, {}) || {}; }
-  function setCloud(patch) { write(CLOUD_KEY, Object.assign({}, getCloud(), patch)); }
   function gistHeaders() {
     const cfg = getCloud();
     const t = (cfg.token || '').trim();
@@ -360,13 +444,13 @@
     if (status === 404) return act + '失败：私密 Gist 返回 404，多半是 Token 无效/无 gist 权限，或 Gist ID 填错（点「测试连接」可一步定位）';
     return act + '失败（HTTP ' + status + (msg ? '：' + msg : '') + '）';
   }
-  // 上传：把当前完整快照写入 Gist（PUT），并清理非标准残留文件
+  // 上传：把当前完整快照写入 Gist（PATCH），并清理非标准残留文件
   async function gistUpload() {
     const cfg = getCloud();
     if (!cfg.token || !cfg.gistId) throw new Error('请先在设置里填写并保存 Token 与 Gist ID');
     const gistId = normGistId(cfg.gistId);
     if (!gistId) throw new Error('请先在设置里填写并保存 Token 与 Gist ID');
-    // 先取现有文件名，把非 cuotiben.json 的杂散文件在 PUT 时一并删除
+    // 先取现有文件名，把非 cuotiben.json 的杂散文件在 PATCH 时一并删除
     let existing = [];
     try {
       const g0 = await fetch('https://api.github.com/gists/' + gistId, { headers: gistHeaders() });
@@ -399,7 +483,9 @@
     const g = await r.json();
     const f = g.files && g.files[GIST_FILE];
     if (!f || !f.content) throw new Error('Gist 中没有找到 ' + GIST_FILE);
-    importData(JSON.parse(f.content));
+    _importing = true;            // 拉取期间不触发自动回传，避免无意义上传
+    try { importData(JSON.parse(f.content)); }
+    finally { _importing = false; }
     setCloud({ lastSync: now(), lastResult: 'down' });
     return g;
   }
@@ -425,15 +511,35 @@
     return { login: me.login, gist: gistMsg };
   }
 
+  /* ---------- 自动同步（账户开启 autoSync 后，数据变更自动上传） ---------- */
+  let _autoTimer = null, _importing = false;
+  function scheduleAutoSync() {
+    const a = getCurrentAccount();
+    if (!a || !a.cloud || !a.cloud.autoSync) return;
+    if (!a.cloud.token || !a.cloud.gistId) return;
+    if (_autoTimer) clearTimeout(_autoTimer);
+    _autoTimer = setTimeout(async () => {
+      _autoTimer = null;
+      try { await gistUpload(); }
+      catch (e) { /* 自动同步失败静默处理，手动可点上传排查 */ }
+    }, 1200);
+  }
+  function autoSyncTick() { if (!_importing) scheduleAutoSync(); }
+
   /* ---------- 导出 API ---------- */
   global.DB = {
+    // 账户
+    getAccounts, getAccount, getCurrentName, getCurrentAccount,
+    registerAccount, verifyAccount, setCurrentName, logout,
+    setAccountCloud, getCloud, setCloud, seedAccounts, migrateLegacy,
+    // 业务
     getSubjects, addSubject, deleteSubject, renameSubject, MASTERY, CHINESE_DICT_KP,
     getKeywords, addKeyword, updateKeyword, deleteKeyword,
     getErrors, getError, addError, updateError, deleteError,
     dueDaysForReview, nextDueDate, isMastered, dueReviews, recordReview,
     toPinyin, seedIfEmpty, seedReviewDemo,
     exportData, importData, clearAll, snapshot,
-    getCloud, setCloud, gistUpload, gistDownload, gistTest,
-    _raw: () => ({ errors: read(STORE.errors, []), keywords: read(STORE.keywords, []) }),
+    gistUpload, gistDownload, gistTest,
+    _raw: () => ({ errors: read(K('errors'), []), keywords: read(K('keywords'), []) }),
   };
 })(window);
