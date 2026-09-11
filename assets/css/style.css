@@ -228,14 +228,14 @@ body {
 /* 筛选面板：起止时间（按录入日期） */
 .f-date { flex-direction: column; align-items: flex-start; gap: 6px; flex: 1 1 100%; }
 .f-date > label { font-size: 12.5px; color: var(--ink-2); font-weight: 600; }
-.date-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.date-row { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; }
 .date-input {
-  flex: 1 1 130px; min-width: 120px; max-width: 180px;
+  flex: 1 1 130px; min-width: 110px; max-width: 180px;
   padding: 8px 10px; font-size: 13px; color: var(--ink);
   background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
 }
 .date-input:focus { outline: none; border-color: var(--primary); }
-.date-sep { color: var(--ink-3); font-size: 13px; }
+.date-sep { color: var(--ink-3); font-size: 13px; flex: 0 0 auto; }
 
 .btn {
   width: 100%; border: none; border-radius: 14px; padding: 14px;
