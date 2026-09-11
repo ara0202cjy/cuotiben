@@ -108,10 +108,23 @@
         </div>
       </div>
       ${revCount ? `
-      <div class="review-pill">
-        <span class="rp-ico">🔔</span>
-        <div class="rp-tx">你有 <b>${revCount}</b> 道错题到点复习啦</div>
-        <button class="rp-go" id="goReview">去复习</button>
+      <div class="card" style="margin-top:12px;padding:14px 16px">
+        <p class="card-h" style="margin-bottom:8px">今日需要复习 <span style="color:var(--ink-2);font-weight:400">（${revCount} 道）</span></p>
+        <div id="homeRevList">
+          ${due.map(e => `
+            <div class="rev-item">
+              <div class="rev-due">${dueLabel(e)}</div>
+              <div class="rev-card">
+                <div class="item-top">${metaTagsHTML(e)}
+                  <button class="item-edit" data-edit="${e.id}" title="编辑 / 删除" aria-label="编辑">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                  </button>
+                </div>
+                ${errorExpandHTML(e)}
+              </div>
+            </div>`).join('')}
+        </div>
+        <button class="btn small ghost" id="goReview" style="width:100%;margin-top:10px">去复习页逐题批改 ›</button>
       </div>` : ''}
       <div class="card">
         <p class="card-h">最近错题</p>
@@ -120,6 +133,12 @@
           : '<div class="empty">还没有错题，点下方 ＋ 录入吧</div>'}
       </div>`;
     $('#goReview')?.addEventListener('click', () => setView('review'));
+    if (revCount) {
+      bindAnsToggle($('#homeRevList') || document);
+      $$('#homeRevList .item-edit').forEach(b => b.addEventListener('click', ev => {
+        ev.stopPropagation(); openDetail(b.dataset.edit);
+      }));
+    }
     bindRecent();
   }
   function fmtDateShort(iso) { const d = new Date(iso); return `${d.getMonth() + 1}月${d.getDate()}日`; }
