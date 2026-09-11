@@ -288,7 +288,7 @@
     openSheet(`
       <button class="close-x">✕</button>
       <h3>配置云端同步</h3>
-      <p class="set-tip2">${isLv ? 'lvcheng 账户将自动同步到专属云端数据库。只需粘贴一次 Token，之后每次修改自动备份（Token 仅存本机，不公开）。' : '为该账户配置 GitHub Gist 云端同步，Token 仅存本机。'}</p>
+      <p class="set-tip2">${isLv ? 'lvcheng 账户将自动同步到专属云端数据库。只需粘贴一次 Token，之后每次修改自动备份（Token 仅存本机，不公开）。' : '为该账户配置 GitHub Gist 云端同步，Token 仅存本机。'}<br/>同步内容为<b>本账户全部数据</b>：错题记录、复习 / 做题历史、掌握状态、科目与关键词等，换设备登录即自动拉回。</p>
       <div class="set-form">
         <label class="set-lbl">GitHub Token${isLv ? '（lvcheng 专用）' : ''}</label>
         <input class="set-input" id="guideToken" type="password" placeholder="ghp_ 开头" autocomplete="off" />
@@ -357,7 +357,16 @@
           <span class="set-val">清空全部错题与关键词</span>
         </button>
       </div>
-      <p class="set-tip">数据保存在本设备浏览器中。换手机 / 清缓存前，请先「导出数据」备份；已登录账户会自动云端同步。</p>`);
+      <div class="set-group">
+        <p class="set-title">云端同步说明</p>
+        <p class="set-tip">已登录并开启自动同步的账户，所有修改会实时备份到你自己的 GitHub Gist（私密云端）。<b>同步覆盖本账户的全部数据</b>：</p>
+        <ul style="margin:6px 0 2px 18px;color:var(--ink-2);font-size:13px;line-height:1.8">
+          <li><b>错题记录</b>：题目、正确答案、图片、拼音、所属科目 / 知识点 / 来源</li>
+          <li><b>复习情况</b>：每道题的做题对错历史、掌握状态（未掌握 / 部分掌握 / 已掌握）、下次复习时间</li>
+          <li><b>科目、关键词、来源</b>等全部设置项</li>
+        </ul>
+        <p class="set-tip" style="margin-top:6px">换手机 / 清缓存后，用同一账户登录即可自动拉回全部数据，不会丢失。账户密码与 Token 只存本机，<b>不会</b>上传云端。</p>
+      </div>`);
 
     $('#setExport').addEventListener('click', () => {
       try {
