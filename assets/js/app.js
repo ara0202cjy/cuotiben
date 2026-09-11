@@ -487,7 +487,7 @@
     const subjects = DB.getSubjects();
     const expanded = state.expanded || {};
     const f = state.filter;
-    const hasFilter = !!(f.kpId || f.srcId || f.mastery || (state.subject && state.subject !== '全部'));
+    const hasFilter = !!(f.kpId || f.srcId || f.mastery || f.from || f.to || (state.subject && state.subject !== '全部'));
     const total = DB.getErrors().length;
     const allOpen = subjects.length > 0 && subjects.every(s => expanded[s]);
 
@@ -600,13 +600,24 @@
     const f = state.filter; let n = 0;
     if (state.subject && state.subject !== '全部') n++;
     if (f.kpId) n++; if (f.srcId) n++; if (f.mastery) n++;
+    if (f.from || f.to) n++;
     return n ? `（${n}）` : '';
   }
   // 取某学科在当前筛选下匹配的错题（笔记本渲染与勾选共用）
   function listSubjectErrs(s) {
     const f = state.filter;
-    const hasFilter = !!(f.kpId || f.srcId || f.mastery || (state.subject && state.subject !== '全部'));
-    return DB.getErrors(Object.assign({ subject: s }, hasFilter ? f : {}));
+    const hasFilter = !!(f.kpId || f.srcId || f.mastery || f.from || f.to || (state.subject && state.subject !== '全部'));
+    let list = DB.getErrors(Object.assign({ subject: s }, (f.kpId || f.srcId || f.mastery) ? f : {}));
+    // 起止时间筛选：按录入日期 createdAt 的 YYYY-MM-DD 比较，含边界（from/to 为空表示不限）
+    if (f.from || f.to) {
+      list = list.filter(e => {
+        const day = (e.createdAt || '').slice(0, 10);
+        if (f.from && day < f.from) return false;
+        if (f.to && day > f.to) return false;
+        return true;
+      });
+    }
+    return list;
   }
 
   /* ---------------- 高频词：按错题中的使用次数排序，取前 N 个 ---------------- */
@@ -655,6 +666,13 @@
           <span class="kw ${!f.mastery ? 'active' : ''}" data-m="">不限</span>
           ${Object.values(DB.MASTERY).map(m => `<span class="kw ${f.mastery === m.key ? 'active' : ''}" data-m="${m.key}">${m.label}</span>`).join('')}
         </div></div>
+        <div class="f-group f-date"><label>起止时间（按录入日期）</label>
+          <div class="date-row">
+            <input type="date" id="fFrom" class="date-input" value="${esc(f.from || '')}" />
+            <span class="date-sep">至</span>
+            <input type="date" id="fTo" class="date-input" value="${esc(f.to || '')}" />
+          </div>
+        </div>
       </div>
       <div class="btn-row">
         <button class="btn ghost" id="fReset">重置</button>
@@ -686,8 +704,10 @@
       const kp = body.querySelector('#fKp .active')?.dataset.kp || '';
       const src = body.querySelector('#fSrc .active')?.dataset.src || '';
       const m = body.querySelector('#fM .active')?.dataset.m || '';
+      const from = body.querySelector('#fFrom')?.value || '';
+      const to = body.querySelector('#fTo')?.value || '';
       state.subject = subj;
-      state.filter = { kpId: kp || null, srcId: src || null, mastery: m || null };
+      state.filter = { kpId: kp || null, srcId: src || null, mastery: m || null, from: from || null, to: to || null };
       if (lockSubject) state.expanded[lockSubject] = true;
       closeSheet(); renderList();
     });
