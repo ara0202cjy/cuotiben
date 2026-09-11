@@ -88,13 +88,12 @@
   $('#topbarSettings').addEventListener('click', openSettings);
   $$('.tab[data-view]').forEach(t => t.addEventListener('click', () => setView(t.dataset.view)));
 
-  /* ---------------- 首页（紧凑：标题 + 三卡片 + 最近错题） ---------------- */
+  /* ---------------- 首页（紧凑：标题 + 三统计 + 今日需要复习） ---------------- */
   function renderHome() {
     const errs = DB.getErrors();
     const due = DB.dueReviews();
     const revCount = due.length;
     const known = errs.filter(e => DB.isMastered(e)).length;
-    const recent = errs.slice(0, 5); // getErrors 默认按创建时间倒序，取最近 5 道
 
     $('#view').innerHTML = `
       <div class="hero compact">
@@ -107,30 +106,25 @@
           <div class="stat"><div class="num">${known}</div><div class="lab">已掌握</div></div>
         </div>
       </div>
-      ${revCount ? `
       <div class="card" style="margin-top:12px;padding:14px 16px">
         <p class="card-h" style="margin-bottom:8px">今日需要复习 <span style="color:var(--ink-2);font-weight:400">（${revCount} 道）</span></p>
-        <div id="homeRevList">
-          ${due.map(e => `
-            <div class="rev-item">
-              <div class="rev-due">${dueLabel(e)}</div>
-              <div class="rev-card">
-                <div class="item-top">${metaTagsHTML(e)}
-                  <button class="item-edit" data-edit="${e.id}" title="编辑 / 删除" aria-label="编辑">
-                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-                  </button>
-                </div>
-                ${errorExpandHTML(e)}
-              </div>
-            </div>`).join('')}
-        </div>
+        ${revCount
+          ? `<div id="homeRevList">
+              ${due.map(e => `
+                <div class="rev-item">
+                  <div class="rev-due">${dueLabel(e)}</div>
+                  <div class="rev-card">
+                    <div class="item-top">${metaTagsHTML(e)}
+                      <button class="item-edit" data-edit="${e.id}" title="编辑 / 删除" aria-label="编辑">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                      </button>
+                    </div>
+                    ${errorExpandHTML(e)}
+                  </div>
+                </div>`).join('')}
+            </div>`
+          : '<div class="empty" style="padding:6px 0">今天没有到期要复习的错题，做得真棒 🎉</div>'}
         <button class="btn small ghost" id="goReview" style="width:100%;margin-top:10px">去复习页逐题批改 ›</button>
-      </div>` : ''}
-      <div class="card">
-        <p class="card-h">最近错题</p>
-        ${recent.length
-          ? `<div class="recent-grid">${recent.map(recentHTML).join('')}</div>`
-          : '<div class="empty">还没有错题，点下方 ＋ 录入吧</div>'}
       </div>`;
     $('#goReview')?.addEventListener('click', () => setView('review'));
     if (revCount) {
@@ -139,7 +133,6 @@
         ev.stopPropagation(); openDetail(b.dataset.edit);
       }));
     }
-    bindRecent();
   }
   function fmtDateShort(iso) { const d = new Date(iso); return `${d.getMonth() + 1}月${d.getDate()}日`; }
   // 统一展开详情块：知识点 + 题目全文 + 正确答案(点击查看) + 收录时间 + 做题记录
@@ -159,37 +152,6 @@
   }
   function expRow(k, v) {
     return `<div class="exp-row"><span class="exp-k">${k}</span><span class="exp-v">${v}</span></div>`;
-  }
-  function recentHTML(e) {
-    const isP = isDictError(e);
-    const q = (isP ? (e.pinyin || e.text || '') : (e.text || '')).slice(0, 140)
-      || (e.image ? '［含图片错题］' : '（未填写题干）');
-    return `
-      <div class="recent-item" data-id="${e.id}">
-        <div class="recent-top">
-          ${metaTagsHTML(e)}
-          <button class="item-edit" data-edit="${e.id}" title="编辑 / 删除" aria-label="编辑">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-          </button>
-        </div>
-        <div class="recent-body">
-          ${e.image ? `<img class="recent-thumb" src="${e.image}" alt=""/>` : ''}
-          <div class="recent-q">${q}</div>
-        </div>
-        <div class="recent-exp" hidden>${errorExpandHTML(e)}</div>
-      </div>`;
-  }
-  function bindRecent() {
-    $$('.recent-item').forEach(it => {
-      const exp = it.querySelector('.recent-exp');
-      if (exp) it.addEventListener('click', () => {
-        exp.hidden = !exp.hidden;
-        it.classList.toggle('open', !exp.hidden);
-      });
-      const edit = it.querySelector('.item-edit');
-      if (edit) edit.addEventListener('click', ev => { ev.stopPropagation(); openDetail(edit.dataset.edit); });
-      bindAnsToggle(it);
-    });
   }
   // 绑定「显示正确答案」按钮（点击展开/收起答案，不触发外层折叠）
   function bindAnsToggle(scope) {
