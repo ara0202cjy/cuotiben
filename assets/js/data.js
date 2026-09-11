@@ -135,14 +135,8 @@
     known:   { key: 'known',   label: '已掌握', cls: 'm-known' },
   };
   // 语文专属：字词默写 / 字词（录入后自动注音）
-  const CHINESE_DICT_KP = '字词默写';
   const CHINESE_DICT_KPS = ['字词默写', '字词'];
   function isChineseDictKp(name) { return CHINESE_DICT_KPS.includes(name); }
-
-  const STORE = {
-    errors: 'cb_errors_v1',
-    keywords: 'cb_keywords_v1',
-  };
 
   /* ---------- 工具 ---------- */
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -553,7 +547,7 @@
     registerAccount, verifyAccount, setCurrentName, logout,
     setAccountCloud, getCloud, setCloud, seedAccounts, migrateLegacy,
     // 业务
-    getSubjects, addSubject, deleteSubject, renameSubject, MASTERY, CHINESE_DICT_KP, isChineseDictKp,
+    getSubjects, addSubject, deleteSubject, renameSubject, MASTERY, isChineseDictKp,
     getKeywords, addKeyword, updateKeyword, deleteKeyword,
     getErrors, getError, addError, updateError, deleteError,
     dueDaysForReview, nextDueDate, isMastered, dueReviews, recordReview,

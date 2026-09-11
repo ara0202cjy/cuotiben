@@ -25,10 +25,6 @@ body.mode-ipad { font-size: 16px; }
 .mode-ipad .hero.compact { padding: 18px 22px; }
 .mode-ipad .hero.compact .ht-main { font-size: 22px; }
 
-/* 最近错题 → 2 列网格 */
-.mode-ipad .recent-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
-.mode-ipad .recent-grid .recent-item { margin-bottom: 0; }
-
 /* 笔记本每本内题目 → 2 列网格 */
 .mode-ipad .book { margin-bottom: 16px; }
 .mode-ipad .book-body { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; align-content: start; }

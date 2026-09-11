@@ -119,20 +119,6 @@ body {
 .stat .num { font-size: 22px; font-weight: 700; color: var(--primary-deep); }
 .stat .lab { font-size: 11px; color: var(--ink-2); margin-top: 2px; }
 
-.review-pill {
-  display: flex; align-items: center; gap: 10px;
-  background: linear-gradient(135deg, #fff7f0, #fdf0e8);
-  border: 1px solid var(--accent-soft); border-radius: var(--radius);
-  padding: 14px 16px; margin-bottom: 14px;
-}
-.review-pill .rp-ico { font-size: 22px; }
-.review-pill .rp-tx { flex: 1; }
-.review-pill .rp-tx b { color: var(--accent); }
-.review-pill .rp-go {
-  border: none; background: var(--accent); color: #fff;
-  padding: 8px 14px; border-radius: 20px; font-size: 13px; cursor: pointer;
-}
-
 /* ============ 学科分段 ============ */
 .seg { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 14px; }
 .seg::-webkit-scrollbar { display: none; }
@@ -477,16 +463,12 @@ body {
   color: var(--primary-deep); cursor: pointer; flex: 0 0 auto;
 }
 .item-edit:active { transform: scale(.92); }
-.recent-top .item-edit { margin-left: auto; }
 .item > .item-edit { position: absolute; top: 10px; right: 10px; z-index: 2; }
 
 /* ============ 复习列表卡片 ============ */
 .rev-card { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow-soft); padding: 14px; margin-bottom: 14px; border: 1px solid var(--line); }
-.rev-head { font-size: 15px; font-weight: 700; color: var(--ink); display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-.rev-head .badge { background: var(--accent-soft); color: var(--accent); font-size: 12px; padding: 2px 10px; border-radius: 10px; }
 .rev-item { margin-bottom: 12px; }
 .rev-due { font-size: 12px; color: var(--warn); margin: 0 0 4px 2px; font-weight: 600; }
-.due-tip { font-size: 12px; color: var(--warn); margin: -6px 0 10px; font-weight: 600; }
 
 /* ============ 导出勾选 ============ */
 .exp-row { display: flex; align-items: center; gap: 10px; padding: 11px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); margin-bottom: 8px; background: var(--surface); cursor: pointer; }
@@ -504,19 +486,6 @@ body {
 
 /* ============ 首页紧凑样式 ============ */
 .hero.compact { padding: 12px 16px; margin-bottom: 12px; }
-
-/* ============ 最近错题（缩略 + 点击展开） ============ */
-.recent-item { position: relative; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; margin-bottom: 10px; cursor: pointer; box-shadow: var(--shadow-soft); }
-.recent-top { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
-.recent-top .subj-tag { font-size: 11px; padding: 2px 9px; }
-.recent-time { margin-left: auto; font-size: 11px; color: var(--ink-3); flex: 0 0 auto; }
-.recent-body { display: flex; gap: 10px; align-items: flex-start; }
-.recent-thumb { width: 42px; height: 42px; border-radius: 8px; object-fit: cover; flex: 0 0 auto; background: var(--surface-2); }
-.recent-q {
-  flex: 1; min-width: 0; font-size: 13.5px; color: var(--ink); line-height: 1.45; margin: 0;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
-}
-.recent-item.open .recent-q { -webkit-line-clamp: unset; display: block; }
 
 /* ============ 设置面板 ============ */
 .set-group { margin-bottom: 16px; }
@@ -567,14 +536,10 @@ body {
 .hero.compact .ht-sub { font-size: 13px; color: var(--ink-2); font-weight: 500; margin-left: 2px; }
 
 /* 展开区：所有题目通用 */
-.recent-exp, .item-exp {
+.item-exp {
   margin-top: 8px; padding-top: 10px; border-top: 1px dashed var(--line);
 }
-.recent-item.open .recent-body { display: none; }
 .item.open .item-q { display: none; }
-.exp-row { display: flex; gap: 8px; align-items: baseline; margin-bottom: 6px; font-size: 12.5px; }
-.exp-k { color: var(--ink-2); flex: 0 0 auto; }
-.exp-v { color: var(--ink); font-weight: 600; }
 .exp-q { font-size: 14px; color: var(--ink); line-height: 1.6; white-space: pre-wrap; word-break: break-word; margin-bottom: 8px; }
 .exp-img { max-width: 100%; border-radius: 8px; margin-bottom: 8px; display: block; }
 .exp-ans {

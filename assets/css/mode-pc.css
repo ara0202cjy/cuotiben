@@ -50,10 +50,6 @@ body.mode-pc { font-size: 16px; }
 .mode-pc .hero.compact { padding: 22px 26px; }
 .mode-pc .hero.compact .ht-main { font-size: 24px; }
 
-/* 最近错题 → 自适应网格（宽屏 3 列，窄屏自动 2 列） */
-.mode-pc .recent-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
-.mode-pc .recent-grid .recent-item { margin-bottom: 0; }
-
 /* 笔记本每本内题目 → 自适应网格 */
 .mode-pc .book { margin-bottom: 18px; }
 .mode-pc .book-body { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; align-content: start; }

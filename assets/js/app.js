@@ -1,7 +1,7 @@
 /* =========================================================
- * 错题本工作台 · 框架原型
- * 移动端优先 / 清新淡雅 / 纯前端（localStorage）
- * 本文件搭建四大模块的可点击框架，功能为骨架，供确认方向。
+ * 错题本工作台 · 错题收集与复习
+ * 移动端优先 / 清新淡雅 / 纯前端（localStorage + GitHub Gist 同步）
+ * 模块：首页 / 错题本（筛选·勾选·导出·删除）/ 复习（间隔推送·批改）/ 我的（统计·关键词·来源）
  * ========================================================= */
 (function () {
   'use strict';
@@ -134,7 +134,6 @@
       }));
     }
   }
-  function fmtDateShort(iso) { const d = new Date(iso); return `${d.getMonth() + 1}月${d.getDate()}日`; }
   // 统一展开详情块：知识点 + 题目全文 + 正确答案(点击查看) + 收录时间 + 做题记录
   function errorExpandHTML(e) {
     const isP = isDictError(e);
@@ -149,9 +148,6 @@
         <div class="exp-ans" hidden>${e.answer || '（未填写）'}</div>
       </div>
       <div class="exp-meta-row"><span>收录于 ${fmtDate(e.createdAt)}</span><span>做题 ${e.reviews.length} 次 · 正确 ${ok} 次 · 错误 ${bad} 次</span></div>`;
-  }
-  function expRow(k, v) {
-    return `<div class="exp-row"><span class="exp-k">${k}</span><span class="exp-v">${v}</span></div>`;
   }
   // 绑定「显示正确答案」按钮（点击展开/收起答案，不触发外层折叠）
   function bindAnsToggle(scope) {
@@ -210,7 +206,6 @@
     });
   }
 
-  /* ---------------- 设置（数据迁移 / 清空 / 云端同步预留） ---------------- */
   /* ---------------- 账户登录 ---------------- */
   function injectLoginModal() {
     if (document.getElementById('loginMask')) return;
