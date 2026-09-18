@@ -229,7 +229,7 @@ body {
 .btn.small { width: auto; padding: 8px 16px; font-size: 14px; border-radius: 12px; }
 
 /* ============ 拍照/图片区 ============ */
-.img-prev { position: relative; border-radius: var(--radius-sm); overflow: hidden; margin-top: 10px; }
+.img-prev { position: relative; border-radius: var(--radius-sm); overflow: hidden; margin-top: 0; }
 .img-prev img { width: 100%; display: block; }
 .img-tools { position: absolute; left: 0; right: 0; bottom: 0; display: flex; gap: 8px; padding: 10px; background: linear-gradient(transparent, rgba(20,30,26,.62)); }
 .img-tools .crop-btn {
@@ -239,6 +239,20 @@ body {
 .img-tools .crop-btn.auto { background: var(--accent); color: #fff; }
 .img-tools .crop-btn:disabled { opacity: .6; }
 .img-note { font-size: 12px; color: var(--ink-2); margin: 8px 2px 0; line-height: 1.5; }
+
+  /* 多图预览容器 */
+  #imgPreview { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+  .img-tools .crop-btn.del { background: rgba(196,82,82,.92); }
+  .zoomable { cursor: zoom-in; }
+
+  /* 全屏看图 */
+  .lb-mask { position: fixed; inset: 0; z-index: 9999; background: rgba(14,19,16,.95); display: flex; align-items: center; justify-content: center; padding: 16px; }
+  .lb-mask[hidden] { display: none !important; }
+  .lb-img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 8px; }
+  .lb-close { position: fixed; top: 14px; right: 14px; z-index: 2; width: 42px; height: 42px; border: none; border-radius: 50%; background: rgba(255,255,255,.18); color: #fff; font-size: 18px; line-height: 1; cursor: pointer; }
+  .lb-nav { position: fixed; top: 50%; transform: translateY(-50%); z-index: 2; width: 46px; height: 46px; border: none; border-radius: 50%; background: rgba(255,255,255,.18); color: #fff; font-size: 28px; line-height: 1; cursor: pointer; }
+  .lb-prev { left: 12px; } .lb-next { right: 12px; }
+  .lb-nav[hidden] { display: none !important; }
 
 /* ============ 复习（待复习列表 / 批改） ============ */
 .rev-toolbar { display: flex; align-items: center; justify-content: space-between; margin: 14px 2px 8px; }

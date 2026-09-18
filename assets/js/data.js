@@ -188,7 +188,7 @@
   /**
    * error: {
    *   id, subject, mode:'text'|'image'|'mixed',
-   *   text, image(dataURL), pinyin,
+   *   text, images:[dataURL], image(首个,兼容旧数据), pinyin,
    *   kpId, srcId, mastery:'unknown'|'fuzzy'|'known',
    *   answer, createdAt,
    *   reviews: [{ date, correct:true|false }]
@@ -221,7 +221,7 @@
       id: uid(),
       subject: '数学',
       mode: 'text',
-      text: '', image: null, pinyin: '',
+      text: '', image: null, images: [], pinyin: '',
       kpId: null, srcId: null, mastery: 'unknown',
       answer: '', reviews: [],
     }, data, { createdAt: (data && data.createdAt) ? data.createdAt : created });
@@ -352,7 +352,7 @@
       return ex ? ex.id : addKeyword('src', name, subject).id;
     };
     const mk = o => Object.assign({
-      id: uid(), subject: '数学', mode: 'text', text: '', image: null, pinyin: '',
+      id: uid(), subject: '数学', mode: 'text', text: '', image: null, images: [], pinyin: '',
       kpId: null, srcId: null, mastery: 'unknown', answer: '', reviews: [], createdAt: now(),
     }, o);
     const items = [

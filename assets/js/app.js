@@ -9,6 +9,32 @@
   const $ = (sel, root) => (root || document).querySelector(sel);
   const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
 
+  // 兼容旧数据：优先用 images 数组，回退到单个 image
+  function imgList(e) {
+    if (Array.isArray(e.images) && e.images.length) return e.images;
+    if (e.image) return [e.image];
+    return [];
+  }
+
+  // 全屏看图：点击任意 .zoomable 图片时调用
+  function openLightbox(src) {
+    const ctx = $('#sheet').hidden ? document : $('#sheetBody');
+    const imgs = $$('.zoomable', ctx).filter(img => img.offsetParent !== null);
+    if (!imgs.length) return;
+    let idx = imgs.findIndex(img => img.src === src);
+    if (idx < 0) idx = 0;
+    const lb = $('#lightbox'), lbi = $('#lbImg'), nav = $('#lbNav');
+    function show(i) {
+      idx = (i + imgs.length) % imgs.length;
+      lbi.src = imgs[idx].src;
+      nav.hidden = imgs.length <= 1;
+    }
+    show(idx);
+    lb.hidden = false;
+    $('#lbPrev').onclick = ev => { ev.stopPropagation(); show(idx - 1); };
+    $('#lbNext').onclick = ev => { ev.stopPropagation(); show(idx + 1); };
+  }
+
   const state = { view: 'home', subject: '全部', filter: {}, expanded: {}, selectMode: false, selected: new Set(), mineFilter: { subject: '全部', kpId: null, srcId: null }, mineStatOpen: true };
 
   /* ---------------- 通用 UI ---------------- */
@@ -23,8 +49,18 @@
     body.querySelector('.close-x')?.addEventListener('click', closeSheet);
     return body;
   }
-  function closeSheet() { $('#sheet').hidden = true; $('#sheetBody').innerHTML = ''; }
+  function closeSheet() { $('#sheet').hidden = true; $('#sheetBody').innerHTML = ''; $('#lightbox').hidden = true; }
   $('#sheet').addEventListener('click', e => { if (e.target.id === 'sheet') closeSheet(); });
+  // 全屏看图：捕获阶段处理，避免触发卡片折叠等冒泡行为
+  document.addEventListener('click', e => {
+    const z = e.target.closest && e.target.closest('.zoomable');
+    if (!z) return;
+    e.preventDefault(); e.stopPropagation();
+    openLightbox(z.src);
+  }, true);
+  $('#lightbox').addEventListener('click', e => {
+    if (e.target.id === 'lightbox' || e.target.id === 'lbClose') $('#lightbox').hidden = true;
+  });
 
   function subjTag(s) { return `<span class="subj-tag subj-${s}">${s}</span>`; }
   function masteryTag(m) {
@@ -141,8 +177,8 @@
     const ok = e.reviews.filter(r => r.correct).length;
     const bad = e.reviews.length - ok;
     return `
-      <div class="exp-q">${qFull || (e.image ? '［含图片错题］' : '（未填写题干）')}</div>
-      ${e.image ? `<img class="exp-img" src="${e.image}" alt=""/>` : ''}
+      <div class="exp-q">${qFull || (imgList(e).length ? '［含图片错题］' : '（未填写题干）')}</div>
+      ${imgList(e).map(s => `<img class="exp-img zoomable" src="${s}" alt=""/>`).join('')}
       <div class="ans-wrap">
         <button class="link-btn" type="button">显示正确答案</button>
         <div class="exp-ans" hidden>${e.answer || '（未填写）'}</div>
@@ -168,13 +204,14 @@
   // 题目展示块：文字（字词默写为拼音）在上，图片在下
   function questionBlockHTML(e, isPinyin) {
     const qText = isPinyin ? (e.pinyin || e.text || '') : (e.text || '');
+    const imgs = imgList(e);
     let h = '';
     if (qText) h += `<div class="detail-q">${qText}</div>`;
-    if (e.image) h += `<img class="detail-img" src="${e.image}"/>`;
+    h += imgs.map(s => `<img class="detail-img zoomable" src="${s}" alt=""/>`).join('');
     return h || '<div class="detail-q">（无内容）</div>';
   }
   function itemHTML(e, withDel, expandable, selectable, selected) {
-    const hasImg = !!e.image;
+    const hasImg = imgList(e).length > 0;
     const isP = isDictError(e);
     const q = (isP ? (e.pinyin || e.text || '') : (e.text || '')).slice(0, 60) || (hasImg ? '［含图片错题］' : '（未填写题干）');
     return `
@@ -719,7 +756,7 @@
     const form = {
       subject: err ? err.subject : (subjects.includes('数学') ? '数学' : subjects[0]),
       text: err ? (dictOf(err) ? (err.answer || err.text || '') : (err.text || '')) : '',
-      image: err ? (err.image || null) : null,
+      images: err ? imgList(err) : [],
       kpId: err ? (err.kpId || null) : null,
       srcId: err ? (err.srcId || null) : null,
       mastery: err ? (err.mastery || 'unknown') : 'unknown',
@@ -779,9 +816,9 @@
         <label id="entryQLabel">题干 / 错题内容</label>
         <textarea class="textarea" id="entryText" placeholder="输入或粘贴题目内容…">${form.text}</textarea>
       </div>
-      <div class="field"><label>图片（从相册添加，可裁剪）</label>
-        <button class="btn ghost" id="imgDrop" style="width:100%">🖼 从相册添加图片</button>
-        <input type="file" id="imgInput" accept="image/*" hidden />
+      <div class="field"><label>图片（可一次添加多张，从相册选择，可裁剪 / 删除）</label>
+        <button class="btn ghost" id="imgDrop" style="width:100%">🖼 从相册添加图片（可多选）</button>
+        <input type="file" id="imgInput" accept="image/*" multiple hidden />
         <div id="imgPreview"></div>
       </div>
       <div class="field" id="pinyinWrap" style="display:none">
@@ -818,37 +855,48 @@
     }));
     // 渲染图片预览 + 裁剪按钮（图片可矩形裁剪，不做识别）
     function renderImgPreview() {
-      if (!form.image) { $('#imgPreview').innerHTML = ''; return; }
-      $('#imgPreview').innerHTML = `
-        <div class="img-prev"><img src="${form.image}" />
+      const wrap = $('#imgPreview');
+      if (!form.images.length) { wrap.innerHTML = ''; return; }
+      wrap.innerHTML = form.images.map((src, i) => `
+        <div class="img-prev"><img src="${src}" />
           <div class="img-tools">
-            <button class="crop-btn" id="cropBtn">✂ 裁剪</button>
+            <button class="crop-btn" data-i="${i}">✂ 裁剪</button>
+            <button class="crop-btn del" data-del="${i}">🗑 删除</button>
           </div>
-          <p class="img-note">拖动选框选择要保留的部分，可移动或缩放，裁掉多余区域。</p>
-        </div>`;
-      $('#cropBtn').addEventListener('click', () => openCropper(form.image, cropped => {
-        form.image = cropped; renderImgPreview(); refresh(); toast('已裁剪 ✓');
+        </div>`).join('');
+      wrap.querySelectorAll('.crop-btn[data-i]').forEach(b => b.addEventListener('click', () => {
+        const i = +b.dataset.i;
+        openCropper(form.images[i], cropped => {
+          form.images[i] = cropped; renderImgPreview(); refresh(); toast('已裁剪 ✓');
+        });
+      }));
+      wrap.querySelectorAll('.crop-btn.del').forEach(b => b.addEventListener('click', () => {
+        const i = +b.dataset.del; form.images.splice(i, 1); renderImgPreview(); refresh();
       }));
     }
     // 从相册添加图片
     $('#imgDrop').addEventListener('click', () => $('#imgInput').click());
     $('#imgInput').addEventListener('change', e => {
-      const file = e.target.files[0]; if (!file) return;
-      const r = new FileReader();
-      r.onload = ev => { form.image = ev.target.result; renderImgPreview(); refresh(); };
-      r.readAsDataURL(file);
+      const files = Array.from(e.target.files || []); if (!files.length) return;
+      let done = 0;
+      files.forEach(file => {
+        const r = new FileReader();
+        r.onload = ev => { form.images.push(ev.target.result); if (++done === files.length) { renderImgPreview(); refresh(); } };
+        r.readAsDataURL(file);
+      });
+      e.target.value = '';
     });
     // 保存：文字 + 图片 并存；字词默写则将中文转为拼音题目、中文存为正确答案
     $('#saveErr').addEventListener('click', () => {
       const hasText = !!form.text.trim();
-      const hasImg = !!form.image;
+      const hasImg = form.images.length > 0;
       if (!hasText && !hasImg) { toast('请填写文字或从相册添加图片'); return; }
       const isDict = form.subject === '语文'
         && DB.isChineseDictKp(DB.getKeywords('kp').find(k => k.id === form.kpId)?.name);
       const mode = (hasText && hasImg) ? 'mixed' : hasImg ? 'image' : 'text';
       let payload = {
         subject: form.subject, mode,
-        text: form.text, image: form.image,
+        text: form.text, image: form.images[0] || null, images: form.images,
         kpId: form.kpId, srcId: form.srcId, mastery: form.mastery, answer: form.answer,
         pinyin: '',
       };
@@ -1004,13 +1052,14 @@
   // 单题批改卡片：折叠题面 + 显示答案 + 对/错选择
   function gradeItemHTML(e) {
     const isP = isDictError(e);
+    const imgs = imgList(e);
     const q = (isP ? (e.pinyin || e.text || '') : (e.text || '')).slice(0, 120)
-      || (e.image ? '［含图片错题］' : '（未填写题干）');
+      || (imgs.length ? '［含图片错题］' : '（未填写题干）');
     return `
       <div class="grade-item" data-id="${e.id}">
         <div class="grade-top">${metaTagsHTML(e)}</div>
         <div class="grade-q">${q}</div>
-        ${e.image ? `<img class="grade-img" src="${e.image}" alt=""/>` : ''}
+        ${imgs.map(s => `<img class="grade-img zoomable" src="${s}" alt=""/>`).join('')}
         <div class="grade-ans"><span class="ga-k">答案：</span>${e.answer || '（未填写答案）'}</div>
         <div class="grade-pick">
           <button class="pick ok" type="button" data-v="true">✓ 对</button>
@@ -1288,7 +1337,7 @@
       <div id="expList" style="max-height:46vh;overflow:auto">
         ${list.map(e => {
           const q = (isDictError(e) ? (e.pinyin || e.text || '') : (e.text || '')).slice(0, 40)
-            || (e.image ? '［含图片错题］' : '（未填写题干）');
+            || (imgList(e).length ? '［含图片错题］' : '（未填写题干）');
           return `
           <label class="exp-row">
             <input type="checkbox" class="exp-chk" data-id="${e.id}" checked/>
@@ -1333,7 +1382,7 @@
               ${e.srcId ? `<span class="tag">来源 · ${kwName(e.srcId)}</span>` : ''}
             </div>
             ${q ? `<div class="pf-q">${q}</div>` : ''}
-            ${e.image ? `<img class="pf-img" src="${e.image}"/>` : ''}
+            ${imgList(e).map(s => `<img class="pf-img zoomable" src="${s}" alt=""/>`).join('')}
             ${reserve ? `<div class="pf-write"><span>作答区域</span></div>` : ''}
           </div>`;
         }).join('')}
