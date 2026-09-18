@@ -23,16 +23,17 @@
     if (!imgs.length) return;
     let idx = imgs.findIndex(img => img.src === src);
     if (idx < 0) idx = 0;
-    const lb = $('#lightbox'), lbi = $('#lbImg'), nav = $('#lbNav');
+    const lb = $('#lightbox'), lbi = $('#lbImg'), prev = $('#lbPrev'), next = $('#lbNext');
     function show(i) {
       idx = (i + imgs.length) % imgs.length;
       lbi.src = imgs[idx].src;
-      nav.hidden = imgs.length <= 1;
+      const multi = imgs.length > 1;
+      prev.hidden = !multi; next.hidden = !multi;
     }
     show(idx);
     lb.hidden = false;
-    $('#lbPrev').onclick = ev => { ev.stopPropagation(); show(idx - 1); };
-    $('#lbNext').onclick = ev => { ev.stopPropagation(); show(idx + 1); };
+    prev.onclick = ev => { ev.stopPropagation(); show(idx - 1); };
+    next.onclick = ev => { ev.stopPropagation(); show(idx + 1); };
   }
 
   const state = { view: 'home', subject: '全部', filter: {}, expanded: {}, selectMode: false, selected: new Set(), mineFilter: { subject: '全部', kpId: null, srcId: null }, mineStatOpen: true };
