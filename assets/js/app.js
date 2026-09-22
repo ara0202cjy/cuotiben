@@ -764,6 +764,21 @@
       answer: err ? (err.answer || '') : '',
       pinyin: err ? (err.pinyin || '') : '',
     };
+    // 录入方式：单题 / 批量（批量仅在新建时出现，编辑始终单题）
+    let entryMode = 'single', batchType = 'text';
+    const modeSection = isEdit ? '' : `
+      <div class="field"><label>录入方式</label>
+        <div class="seg" id="entryMode">
+          <button class="chip active" data-m="single">单题输入</button>
+          <button class="chip" data-m="batch">批量输入</button>
+        </div>
+      </div>
+      <div class="field" id="batchTypeField" style="display:none"><label>批量类型</label>
+        <div class="seg" id="entryBatchType">
+          <button class="chip active" data-bt="text">文字（分号分隔）</button>
+          <button class="chip" data-bt="image">图片（一题一图）</button>
+        </div>
+      </div>`;
 
     function kpOptions() {
       const list = DB.getKeywords('kp').filter(k => k.subject === form.subject);
@@ -784,9 +799,14 @@
       // 语文字词默写 -> 中文转拼音题目，中文作为正确答案，隐藏"正确答案"输入框
       const kp = DB.getKeywords('kp').find(k => k.id === form.kpId);
       const isDict = form.subject === '语文' && kp && DB.isChineseDictKp(kp.name);
-      $('#pinyinWrap').style.display = isDict ? 'block' : 'none';
-      $('#entryAnsField').style.display = isDict ? 'none' : 'block';
-      $('#entryQLabel').textContent = isDict ? '字词内容（输入中文，将自动转为拼音题目）' : '题干 / 错题内容';
+      const inBatch = entryMode === 'batch';
+      $('#pinyinWrap').style.display = (isDict && !inBatch) ? 'block' : 'none';
+      $('#entryAnsField').style.display = inBatch ? 'none' : 'block';
+      if (inBatch && batchType === 'text') {
+        $('#entryQLabel').textContent = '批量文字题目（用英文 ; 或中文 ；分隔不同题目，每道自动成为一道错题）';
+      } else {
+        $('#entryQLabel').textContent = isDict ? '字词内容（输入中文，将自动转为拼音题目）' : '题干 / 错题内容';
+      }
       if (isDict) {
         const py = DB.toPinyin(form.text);
         if (py) { form.pinyin = py; $('#pinyinVal').textContent = py; }
@@ -804,6 +824,17 @@
         const n = prompt('输入新来源名称（如：单元测试/作业）：'); if (n && n.trim()) { const k = DB.addKeyword('src', n, form.subject); form.srcId = k.id; refresh(); }
       });
     }
+    // 根据录入方式 / 批量类型显隐字段并设置提示
+    function applyMode() {
+      if (!document.getElementById('entryMode')) return; // 编辑模式无切换
+      const isBatch = entryMode === 'batch';
+      $('#batchTypeField').style.display = isBatch ? 'block' : 'none';
+      $('#imgField').style.display = (!isBatch || batchType === 'image') ? 'block' : 'none';
+      $('#entryQField').style.display = (!isBatch || batchType === 'text') ? 'block' : 'none';
+      $('#entryText').placeholder = (isBatch && batchType === 'text')
+        ? '例如：3+5=?; 小明有2个苹果又买3个共几个？; 求x的值' : '输入或粘贴题目内容…';
+      refresh();
+    }
 
     const body = openSheet(`
       <button class="close-x">✕</button>
@@ -813,11 +844,12 @@
           ${subjects.map(s => `<button class="chip ${s === form.subject ? 'active' : ''}" data-s="${s}">${s}</button>`).join('')}
         </div>
       </div>
+      ${modeSection}
       <div class="field" id="entryQField">
         <label id="entryQLabel">题干 / 错题内容</label>
         <textarea class="textarea" id="entryText" placeholder="输入或粘贴题目内容…">${form.text}</textarea>
       </div>
-      <div class="field"><label>图片（可一次添加多张，从相册选择，可裁剪 / 删除）</label>
+      <div class="field" id="imgField"><label>图片（可一次添加多张，从相册选择，可裁剪 / 删除）</label>
         <button class="btn ghost" id="imgDrop" style="width:100%">🖼 从相册添加图片（可多选）</button>
         <input type="file" id="imgInput" accept="image/*" multiple hidden />
         <div id="imgPreview"></div>
@@ -847,6 +879,17 @@
       $$('#entrySubj .chip').forEach(x => x.classList.toggle('active', x === c));
       form.kpId = null; form.srcId = null;
       refresh();
+    }));
+    // 录入方式 / 批量类型切换
+    $$('#entryMode .chip').forEach(c => c.addEventListener('click', () => {
+      entryMode = c.dataset.m;
+      $$('#entryMode .chip').forEach(x => x.classList.toggle('active', x === c));
+      applyMode();
+    }));
+    $$('#entryBatchType .chip').forEach(c => c.addEventListener('click', () => {
+      batchType = c.dataset.bt;
+      $$('#entryBatchType .chip').forEach(x => x.classList.toggle('active', x === c));
+      applyMode();
     }));
     $('#entryText').addEventListener('input', e => { form.text = e.target.value; refresh(); });
     $('#entryAnswer').addEventListener('input', e => (form.answer = e.target.value));
@@ -889,6 +932,27 @@
     });
     // 保存：文字 + 图片 并存；字词默写则将中文转为拼音题目、中文存为正确答案
     $('#saveErr').addEventListener('click', () => {
+      // 批量输入：文字按分号拆分 / 图片一题一图，各成独立错题
+      if (entryMode === 'batch') {
+        if (batchType === 'text') {
+          const segs = (form.text || '').split(/[;；]/).map(s => s.trim()).filter(Boolean);
+          if (!segs.length) { toast('请用 ; 或 ； 分隔，至少输入一道题目'); return; }
+          segs.forEach(seg => DB.addError({
+            subject: form.subject, mode: 'text', text: seg, image: null, images: [],
+            kpId: form.kpId, srcId: form.srcId, mastery: form.mastery, answer: '', pinyin: ''
+          }));
+          toast('已批量保存 ' + segs.length + ' 道文字题 ✓');
+        } else {
+          if (!form.images.length) { toast('请至少添加一张图片'); return; }
+          form.images.forEach(img => DB.addError({
+            subject: form.subject, mode: 'image', text: '', image: img, images: [img],
+            kpId: form.kpId, srcId: form.srcId, mastery: form.mastery, answer: '', pinyin: ''
+          }));
+          toast('已批量保存 ' + form.images.length + ' 道图片题 ✓');
+        }
+        closeSheet(); state.subject = form.subject; state.expanded[form.subject] = true; setView('list');
+        return;
+      }
       const hasText = !!form.text.trim();
       const hasImg = form.images.length > 0;
       if (!hasText && !hasImg) { toast('请填写文字或从相册添加图片'); return; }
@@ -922,6 +986,7 @@
       }
     });
     refresh();
+    applyMode();
     renderImgPreview();
   }
 
