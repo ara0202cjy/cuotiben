@@ -800,16 +800,26 @@
       const kp = DB.getKeywords('kp').find(k => k.id === form.kpId);
       const isDict = form.subject === '语文' && kp && DB.isChineseDictKp(kp.name);
       const inBatch = entryMode === 'batch';
-      $('#pinyinWrap').style.display = (isDict && !inBatch) ? 'block' : 'none';
+      // 字词标签：单题与批量均展示拼音预览；批量文字下不展示"正确答案"输入框（交批改判）
+      $('#pinyinWrap').style.display = isDict ? 'block' : 'none';
       $('#entryAnsField').style.display = inBatch ? 'none' : 'block';
       if (inBatch && batchType === 'text') {
-        $('#entryQLabel').textContent = '批量文字题目（用英文 ; 或中文 ；分隔不同题目，每道自动成为一道错题）';
+        $('#entryQLabel').textContent = isDict
+          ? '批量字词（用 ; 或 ；分隔，每道自动转拼音题）'
+          : '批量文字题目（用英文 ; 或中文 ；分隔不同题目，每道自动成为一道错题）';
       } else {
         $('#entryQLabel').textContent = isDict ? '字词内容（输入中文，将自动转为拼音题目）' : '题干 / 错题内容';
       }
       if (isDict) {
-        const py = DB.toPinyin(form.text);
-        if (py) { form.pinyin = py; $('#pinyinVal').textContent = py; }
+        if (inBatch && batchType === 'text') {
+          // 批量文字：逐段预览拼音
+          const segs = (form.text || '').split(/[;；]/).map(s => s.trim()).filter(Boolean);
+          $('#pinyinVal').textContent = segs.length
+            ? segs.map(s => DB.toPinyin(s) || s).join(' ｜ ') : '（输入后将自动显示拼音）';
+        } else {
+          const py = DB.toPinyin(form.text);
+          if (py) { form.pinyin = py; $('#pinyinVal').textContent = py; }
+        }
       } else {
         form.pinyin = '';
       }
@@ -937,10 +947,22 @@
         if (batchType === 'text') {
           const segs = (form.text || '').split(/[;；]/).map(s => s.trim()).filter(Boolean);
           if (!segs.length) { toast('请用 ; 或 ； 分隔，至少输入一道题目'); return; }
-          segs.forEach(seg => DB.addError({
-            subject: form.subject, mode: 'text', text: seg, image: null, images: [],
-            kpId: form.kpId, srcId: form.srcId, mastery: form.mastery, answer: '', pinyin: ''
-          }));
+          const isDict = form.subject === '语文'
+            && DB.isChineseDictKp(DB.getKeywords('kp').find(k => k.id === form.kpId)?.name);
+          segs.forEach(seg => {
+            if (isDict) {
+              const py = DB.toPinyin(seg);
+              DB.addError({
+                subject: form.subject, mode: 'text', text: py || seg, image: null, images: [],
+                kpId: form.kpId, srcId: form.srcId, mastery: form.mastery, answer: seg, pinyin: py
+              });
+            } else {
+              DB.addError({
+                subject: form.subject, mode: 'text', text: seg, image: null, images: [],
+                kpId: form.kpId, srcId: form.srcId, mastery: form.mastery, answer: '', pinyin: ''
+              });
+            }
+          });
           toast('已批量保存 ' + segs.length + ' 道文字题 ✓');
         } else {
           if (!form.images.length) { toast('请至少添加一张图片'); return; }
