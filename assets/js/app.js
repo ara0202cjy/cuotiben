@@ -678,8 +678,10 @@
   function openFilter(lockSubject) {
     const f = state.filter;
     const subjects = lockSubject ? [lockSubject] : ['全部', ...DB.getSubjects()];
-    const kpTop = topKeywords('kp', lockSubject, f.kpId, 6);
-    const srcTop = topKeywords('src', lockSubject, f.srcId, 6);
+    let selSubj = lockSubject || state.subject || '全部';
+    // 知识点/来源跟随所选学科（二级联动）：全部=不按学科过滤
+    const kpTop = topKeywords('kp', selSubj === '全部' ? null : selSubj, f.kpId, 6);
+    const srcTop = topKeywords('src', selSubj === '全部' ? null : selSubj, f.srcId, 6);
     const body = openSheet(`
       <button class="close-x">✕</button>
       <h3>${lockSubject ? '筛选「' + lockSubject + '」本内容' : '筛选错题'}</h3>
@@ -711,10 +713,33 @@
         <button class="btn ghost" id="fReset">重置</button>
         <button class="btn" id="fApply">应用</button>
       </div>`);
-    if (!lockSubject) body.querySelectorAll('#fSubj .kw').forEach(x => x.addEventListener('click', () => {
-      body.querySelectorAll('#fSubj .kw').forEach(y => y.classList.remove('active'));
-      x.classList.add('active');
-    }));
+    if (!lockSubject) {
+      // 按所选学科重新填充知识点/来源（二级联动），并清空已选的 KP/来源
+      const fillKp = (subj, keepId) => {
+        const top = topKeywords('kp', subj === '全部' ? null : subj, keepId || null, 6);
+        const box = document.getElementById('fKp');
+        box.innerHTML = `<span class="kw ${!keepId ? 'active' : ''}" data-kp="">不限</span>`
+          + top.map(k => `<span class="kw ${keepId === k.id ? 'active' : ''}" data-kp="${k.id}">${esc(k.name)}<span class="cnt">${k.count}</span></span>`).join('');
+        box.querySelectorAll('.kw').forEach(w => w.addEventListener('click', () => {
+          box.querySelectorAll('.kw').forEach(y => y.classList.remove('active')); w.classList.add('active');
+        }));
+      };
+      const fillSrc = (subj, keepId) => {
+        const top = topKeywords('src', subj === '全部' ? null : subj, keepId || null, 6);
+        const box = document.getElementById('fSrc');
+        box.innerHTML = `<span class="kw ${!keepId ? 'active' : ''}" data-src="">不限</span>`
+          + top.map(k => `<span class="kw ${keepId === k.id ? 'active' : ''}" data-src="${k.id}">${esc(k.name)}<span class="cnt">${k.count}</span></span>`).join('');
+        box.querySelectorAll('.kw').forEach(w => w.addEventListener('click', () => {
+          box.querySelectorAll('.kw').forEach(y => y.classList.remove('active')); w.classList.add('active');
+        }));
+      };
+      body.querySelectorAll('#fSubj .kw').forEach(x => x.addEventListener('click', () => {
+        body.querySelectorAll('#fSubj .kw').forEach(y => y.classList.remove('active'));
+        x.classList.add('active');
+        selSubj = x.dataset.subj;
+        fillKp(selSubj, null); fillSrc(selSubj, null);
+      }));
+    }
     body.querySelectorAll('#fKp .kw').forEach(x => x.addEventListener('click', () => {
       body.querySelectorAll('#fKp .kw').forEach(y => y.classList.remove('active'));
       x.classList.add('active');
