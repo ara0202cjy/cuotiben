@@ -311,6 +311,7 @@
       }
     }
     setView(state.view); updateRevBadge(); notifyDueReviews();
+    DB.pruneUnusedKeywords();   // 云端同步后清理无引用的知识点/来源
   }
 
   // 登录后一次性云端配置引导（lvcheng 仅填 Token；其余账号填 Token + Gist ID）。不在设置内，杜绝误改。
@@ -679,9 +680,9 @@
     const f = state.filter;
     const subjects = lockSubject ? [lockSubject] : ['全部', ...DB.getSubjects()];
     let selSubj = lockSubject || state.subject || '全部';
-    // 知识点/来源跟随所选学科（二级联动）：全部=不按学科过滤
-    const kpTop = topKeywords('kp', selSubj === '全部' ? null : selSubj, f.kpId, 6);
-    const srcTop = topKeywords('src', selSubj === '全部' ? null : selSubj, f.srcId, 6);
+    // 知识点/来源跟随所选学科（二级联动）：全部=不按学科过滤；显示全部已定义项（无错题的会被自动清理）
+    const kpTop = topKeywords('kp', selSubj === '全部' ? null : selSubj, f.kpId, 9999);
+    const srcTop = topKeywords('src', selSubj === '全部' ? null : selSubj, f.srcId, 9999);
     const body = openSheet(`
       <button class="close-x">✕</button>
       <h3>${lockSubject ? '筛选「' + lockSubject + '」本内容' : '筛选错题'}</h3>
@@ -716,7 +717,7 @@
     if (!lockSubject) {
       // 按所选学科重新填充知识点/来源（二级联动），并清空已选的 KP/来源
       const fillKp = (subj, keepId) => {
-        const top = topKeywords('kp', subj === '全部' ? null : subj, keepId || null, 6);
+        const top = topKeywords('kp', subj === '全部' ? null : subj, keepId || null, 9999);
         const box = document.getElementById('fKp');
         box.innerHTML = `<span class="kw ${!keepId ? 'active' : ''}" data-kp="">不限</span>`
           + top.map(k => `<span class="kw ${keepId === k.id ? 'active' : ''}" data-kp="${k.id}">${esc(k.name)}<span class="cnt">${k.count}</span></span>`).join('');
@@ -725,7 +726,7 @@
         }));
       };
       const fillSrc = (subj, keepId) => {
-        const top = topKeywords('src', subj === '全部' ? null : subj, keepId || null, 6);
+        const top = topKeywords('src', subj === '全部' ? null : subj, keepId || null, 9999);
         const box = document.getElementById('fSrc');
         box.innerHTML = `<span class="kw ${!keepId ? 'active' : ''}" data-src="">不限</span>`
           + top.map(k => `<span class="kw ${keepId === k.id ? 'active' : ''}" data-src="${k.id}">${esc(k.name)}<span class="cnt">${k.count}</span></span>`).join('');
@@ -893,8 +894,10 @@
         <label>题目将自动转为拼音（复习时显示拼音，中文作正确答案不展示）</label>
         <div class="pinyin-line" id="pinyinVal">${form.pinyin}</div>
       </div>
-      <div class="field"><label>知识点</label><div class="kw-box" id="entryKp">${kpOptions()}</div></div>
-      <div class="field"><label>来源</label><div class="kw-box" id="entrySrc">${srcOptions()}</div></div>
+      <div class="field"><label>知识点</label><div class="kw-box" id="entryKp">${kpOptions()}</div>
+        <button class="btn ghost sm" id="renameKp" style="margin-top:8px">✎ 重命名所选知识点</button></div>
+      <div class="field"><label>来源</label><div class="kw-box" id="entrySrc">${srcOptions()}</div>
+        <button class="btn ghost sm" id="renameSrc" style="margin-top:8px">✎ 重命名所选来源</button></div>
       <div class="field"><label>掌握情况</label>
         <div class="opt-row" id="entryMastery">
           ${Object.values(DB.MASTERY).map(m => `<span class="opt ${form.mastery === m.key ? 'active' : ''}" data-m="${m.key}">${m.label}</span>`).join('')}
@@ -928,6 +931,23 @@
     }));
     $('#entryText').addEventListener('input', e => { form.text = e.target.value; refresh(); });
     $('#entryAnswer').addEventListener('input', e => (form.answer = e.target.value));
+    // 重命名知识点/来源：按 id 关联，所有使用它的错题会同步更新
+    $('#renameKp').addEventListener('click', () => {
+      if (!form.kpId) { toast('请先选择一个知识点再重命名'); return; }
+      const cur = DB.getKeywords('kp').find(k => k.id === form.kpId);
+      const n = prompt('重命名知识点（将同步更新所有使用它的错题）：', cur ? cur.name : '');
+      if (n && n.trim() && n.trim() !== (cur && cur.name)) {
+        DB.updateKeyword(form.kpId, n.trim()); refresh(); toast('已重命名，相关错题同步更新 ✓');
+      }
+    });
+    $('#renameSrc').addEventListener('click', () => {
+      if (!form.srcId) { toast('请先选择一个来源再重命名'); return; }
+      const cur = DB.getKeywords('src').find(k => k.id === form.srcId);
+      const n = prompt('重命名来源（将同步更新所有使用它的错题）：', cur ? cur.name : '');
+      if (n && n.trim() && n.trim() !== (cur && cur.name)) {
+        DB.updateKeyword(form.srcId, n.trim()); refresh(); toast('已重命名，相关错题同步更新 ✓');
+      }
+    });
     $$('#entryMastery .opt').forEach(o => o.addEventListener('click', () => {
       form.mastery = o.dataset.m;
       $$('#entryMastery .opt').forEach(x => x.classList.toggle('active', x === o));
@@ -1578,5 +1598,6 @@
   DB.migrateLegacy();
   DB.seedAccounts();
   initPullToSync();
+  DB.pruneUnusedKeywords();   // 启动时清理无引用的知识点/来源
   if (DB.getCurrentName()) afterLogin(); else openLoginModal();
 })();

@@ -183,6 +183,15 @@
     write(K('errors'), errs);
     autoSyncTick();
   }
+  // 自动清理：删除「没有任何错题引用」的知识点 / 来源，保持目录干净
+  function pruneUnusedKeywords() {
+    const used = new Set();
+    read(K('errors'), []).forEach(e => { if (e.kpId) used.add(e.kpId); if (e.srcId) used.add(e.srcId); });
+    let list = read(K('keywords'), []);
+    const before = list.length;
+    list = list.filter(k => used.has(k.id));
+    if (list.length !== before) { write(K('keywords'), list); autoSyncTick(); }
+  }
 
   /* ---------- 错题 ---------- */
   /**
@@ -232,13 +241,18 @@
     const list = read(K('errors'), []);
     const e = list.find(x => x.id === id);
     if (e) Object.assign(e, patch);
-    write(K('errors'), list); autoSyncTick(); return e;
+    write(K('errors'), list);
+    // 改派知识点/来源后，旧项可能不再被引用 → 顺手清理
+    if (patch && (patch.kpId !== undefined || patch.srcId !== undefined)) pruneUnusedKeywords();
+    autoSyncTick(); return e;
   }
 
   function deleteError(id) {
     let list = read(K('errors'), []);
     list = list.filter(x => x.id !== id);
-    write(K('errors'), list); autoSyncTick();
+    write(K('errors'), list);
+    pruneUnusedKeywords();   // 删题后清理无引用的知识点/来源
+    autoSyncTick();
   }
 
   /* ---------- 复习计划（间隔推送 + 掌握判定） ---------- */
@@ -548,7 +562,7 @@
     setAccountCloud, getCloud, setCloud, seedAccounts, migrateLegacy,
     // 业务
     getSubjects, addSubject, deleteSubject, renameSubject, MASTERY, isChineseDictKp,
-    getKeywords, addKeyword, updateKeyword, deleteKeyword,
+    getKeywords, addKeyword, updateKeyword, deleteKeyword, pruneUnusedKeywords,
     getErrors, getError, addError, updateError, deleteError,
     dueDaysForReview, nextDueDate, isMastered, dueReviews, recordReview,
     toPinyin, seedIfEmpty, seedReviewDemo,
