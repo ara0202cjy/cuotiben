@@ -538,8 +538,9 @@
       ${state.selectMode ? `
       <p class="nb-selcnt">已选 ${state.selected.size} 道</p>
       <div class="nb-tools nb-act">
-        <button class="btn ghost nb-danger" id="delSel">删除选中</button>
+        <button class="btn" id="repSel">重练选中</button>
         <button class="btn" id="expSel">导出PDF</button>
+        <button class="btn ghost nb-danger" id="delSel">删除选中</button>
         <button class="btn ghost" id="selNone">清空选择</button>
       </div>` : ''}
       <p class="list-hint">点开任一错题本可预览内容 · 共 ${total} 道 · 点 ✕ 可删减${hasFilter ? '（已按筛选隐藏无匹配学科）' : ''}</p>
@@ -583,6 +584,13 @@
       renderList();
     });
     if (state.selectMode) {
+      $('#repSel').addEventListener('click', () => {
+        const ids = Array.from(state.selected);
+        if (!ids.length) { toast('请先勾选要重练的错题'); return; }
+        const errs = ids.map(id => DB.getError(id)).filter(Boolean);
+        if (!errs.length) { toast('没有可重练的错题'); return; }
+        renderGrade(errs, renderList);
+      });
       $('#delSel').addEventListener('click', () => {
         const ids = Array.from(state.selected);
         if (!ids.length) { toast('请先勾选要删除的错题'); return; }
@@ -1145,14 +1153,18 @@
     updateRevBadge();
   }
 
-  // 批改模式：题目折叠展示、答案全部显示，逐题勾选「对 / 错」后统一记录
-  function renderGrade() {
-    const due = DB.dueReviews();
-    if (!due.length) { renderReview(); return; }
+  // 批改 / 重练模式：题目折叠展示、答案全部显示，逐题勾选「对 / 错」后统一记录。
+  // list 可传入任意错题集合（如笔记本勾选的题目）；不传则默认使用「待复习」集合。
+  // back 为保存后回退函数（默认返回复习页）。
+  function renderGrade(list, back) {
+    const due = (list && list.length) ? list : DB.dueReviews();
+    const backFn = back || (() => renderReview());
+    if (!due.length) { backFn(); toast('没有可重练的错题'); return; }
+    const gTitle = (back === renderList) ? '重练模式' : '批改模式';
     $('#view').innerHTML = `
       <div class="grade-bar">
         <button class="btn ghost small" id="gradeBack">‹ 返回</button>
-        <span class="grade-title">批改模式 · 共 ${due.length} 道</span>
+        <span class="grade-title">${gTitle} · 共 ${due.length} 道</span>
         <button class="btn small" id="gradeSave">保存批改</button>
       </div>
       <p class="grade-tip">题目以折叠形式展示，答案已全部显示；逐题勾选「对 / 错」，完成后点「保存批改」记录。</p>
@@ -1170,7 +1182,7 @@
         b.classList.add('on');
       }));
     });
-    $('#gradeBack').addEventListener('click', renderReview);
+    $('#gradeBack').addEventListener('click', backFn);
     $('#gradeSave').addEventListener('click', () => {
       let ok = 0, bad = 0, none = 0;
       due.forEach(e => {
@@ -1178,8 +1190,8 @@
         DB.recordReview(e.id, sel[e.id]);
         if (sel[e.id]) ok++; else bad++;
       });
-      renderReview();
-      toast(`已记录 ${ok + bad} 道（对 ${ok} / 错 ${bad}${none ? ` · 跳过 ${none}` : ''}）`);
+      backFn();
+      toast(`已重练并记录 ${ok + bad} 道（对 ${ok} / 错 ${bad}${none ? ` · 跳过 ${none}` : ''}）· 复习锚点已更新`);
     });
   }
   // 单题批改卡片：折叠题面 + 显示答案 + 对/错选择

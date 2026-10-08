@@ -265,10 +265,16 @@
     if (n === 1) return 10;                         // 未掌握：10
     return 30 * (n - 1);                            // 未掌握：30, 60, 90 ...
   }
-  // 下一次应复习时间 = 创建时间 + 间隔
+  // 复习锚点 = 最近一次复习的日期；若从未复习则取创建时间。
+  // 这样「随时重练」批改后，锚点刷新为该次重练时间，后续推送据此重新计算（直至全部掌握）。
+  function lastReviewDate(e) {
+    const rv = e.reviews || [];
+    return rv.length ? new Date(rv[rv.length - 1].date).getTime() : new Date(e.createdAt).getTime();
+  }
+  // 下一次应复习时间 = 锚点 + 间隔（间隔基于已复习次数 n）
   function nextDueDate(e) {
     const n = (e.reviews || []).length;
-    return new Date(e.createdAt).getTime() + dueDaysForReview(n, e.mastery) * DAY;
+    return lastReviewDate(e) + dueDaysForReview(n, e.mastery) * DAY;
   }
   // 从 startIdx 起往回数，末尾「连续答对」的次数
   function tailCorrect(reviews, startIdx) {
