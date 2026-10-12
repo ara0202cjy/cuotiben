@@ -140,9 +140,9 @@
     const due = DB.dueReviews().filter(e => !redoIds.includes(e.id));
     const revCount = due.length;
     const known = errs.filter(e => DB.isMastered(e)).length;
-    // 错题重练板块：仅展示 redolist 中当前到期需练的题（未掌握 + 已到推送时间）
+    // 错题重练板块：手动加入即立即可见（不受自然到期限制）；只展示仍在攻克中的题（已掌握的不再需要重练）
     const redoDue = redoIds.map(id => DB.getError(id)).filter(Boolean)
-      .filter(e => !DB.isMastered(e) && DB.nextDueDate(e) <= Date.now());
+      .filter(e => !DB.isMastered(e));
 
     $('#view').innerHTML = `
       <div class="hero compact">
@@ -1319,6 +1319,10 @@
         const v = sel[e.id];
         if (v === 'skip') { skip++; DB.snooze(e.id); return; }   // 未练习：不记录对错，顺延到明天再推
         DB.recordReview(e.id, v === 'ok');
+        if (opts && opts.redo && v === 'ok') {
+          // 答对即固定锚点：离开重练板块，回归正常复习推送流（不删题库、不丢学习记录）
+          setRedo(getRedo().filter(id => id !== e.id));
+        }
         if (v === 'ok') ok++; else bad++;
       });
       if (!(opts && opts.redo)) setPractice([]);   // 非重练模式：练习队列随批改清空；重练模式保留 redolist，错的题次日仍留在板块
