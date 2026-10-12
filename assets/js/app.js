@@ -182,7 +182,7 @@
     const ok = e.reviews.filter(r => r.correct).length;
     const bad = e.reviews.length - ok;
     return `
-      <div class="exp-q">${qFull || '（未填写题干）'}</div>
+      ${qFull ? `<div class="exp-q">${qFull}</div>` : ''}
       ${showImg ? imgList(e).map(s => `<img class="exp-img zoomable" src="${s}" alt=""/>`).join('') : ''}
       <div class="ans-wrap">
         <button class="link-btn" type="button">显示正确答案</button>
@@ -219,7 +219,7 @@
     const imgs = imgList(e);
     const hasImg = imgs.length > 0;
     const isP = isDictError(e);
-    const q = (isP ? (e.pinyin || e.text || '') : (e.text || '')).slice(0, 60) || '（未填写题干）';
+    const q = (isP ? (e.pinyin || e.text || '') : (e.text || '')).slice(0, 60);
     return `
       <div class="item${selectable && selected ? ' sel' : ''}" data-id="${e.id}">
         ${withDel ? `<button class="item-edit" data-edit="${e.id}" title="编辑 / 删除" aria-label="编辑"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>` : ''}
@@ -227,7 +227,7 @@
           ${selectable ? `<input type="checkbox" class="item-check" data-id="${e.id}" ${selected ? 'checked' : ''} aria-label="选择"/>` : ''}
           ${metaTagsHTML(e)}
         </div>
-        <div class="item-q">${q}</div>
+        ${q ? `<div class="item-q">${q}</div>` : ''}
         ${hasImg ? imgs.map(s => `<img class="item-img zoomable" src="${s}" alt=""/>`).join('') : ''}
         ${expandable ? `<div class="item-exp" hidden>${errorExpandHTML(e, false)}</div>` : `
         <div class="item-when">录入于 ${fmtDate(e.createdAt)}</div>`}
@@ -1287,13 +1287,12 @@
   function gradeItemHTML(e) {
     const isP = isDictError(e);
     const imgs = imgList(e);
-    const q = (isP ? (e.pinyin || e.text || '') : (e.text || '')).slice(0, 120)
-      || '（未填写题干）';
+    const q = (isP ? (e.pinyin || e.text || '') : (e.text || '')).slice(0, 120);
     const hasAns = !!(e.answer && String(e.answer).trim());
     return `
       <div class="grade-item" data-id="${e.id}">
         <div class="grade-top">${metaTagsHTML(e)}</div>
-        <div class="grade-q">${q}</div>
+        ${q ? `<div class="grade-q">${q}</div>` : ''}
         ${imgs.map(s => `<img class="grade-img zoomable" src="${s}" alt=""/>`).join('')}
         <div class="grade-ans"${hasAns ? ' style="display:none"' : ''}><span class="ga-k">答案：</span>${e.answer || '（未填写答案）'}</div>
         ${hasAns ? '<button class="btn-show-ans" type="button">显示答案</button>' : ''}
@@ -1614,8 +1613,7 @@
       </div>
       <div id="expList" style="max-height:46vh;overflow:auto">
         ${list.map(e => {
-          const q = (isDictError(e) ? (e.pinyin || e.text || '') : (e.text || '')).slice(0, 40)
-            || '（未填写题干）';
+          const q = (isDictError(e) ? (e.pinyin || e.text || '') : (e.text || '')).slice(0, 40);
           return `
           <label class="exp-row">
             <input type="checkbox" class="exp-chk" data-id="${e.id}" checked/>
