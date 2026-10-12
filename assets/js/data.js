@@ -271,10 +271,15 @@
     const rv = e.reviews || [];
     return rv.length ? new Date(rv[rv.length - 1].date).getTime() : new Date(e.createdAt).getTime();
   }
-  // 下一次应复习时间 = 锚点 + 间隔（间隔基于已复习次数 n）
+  // 下一次应复习时间 = 锚点 + 间隔
+  //   - 最近一次复习判「错」：间隔 1 天（当天错，次日继续推送，直到答对）
+  //   - 其余：按已复习次数 n 取间隔（未掌握 +2/+10/+30…，部分掌握 +30…+）
   function nextDueDate(e) {
-    const n = (e.reviews || []).length;
-    return lastReviewDate(e) + dueDaysForReview(n, e.mastery) * DAY;
+    const rv = e.reviews || [];
+    const anchor = lastReviewDate(e);
+    const last = rv.length ? rv[rv.length - 1] : null;
+    const gap = (last && last.correct === false) ? 1 : dueDaysForReview(rv.length, e.mastery);
+    return anchor + gap * DAY;
   }
   // 从 startIdx 起往回数，末尾「连续答对」的次数
   function tailCorrect(reviews, startIdx) {

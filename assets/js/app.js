@@ -36,7 +36,7 @@
     next.onclick = ev => { ev.stopPropagation(); show(idx + 1); };
   }
 
-  const state = { view: 'home', subject: '全部', filter: {}, expanded: {}, selectMode: false, selected: new Set(), mineFilter: { subject: '全部', kpId: null, srcId: null }, mineStatOpen: true };
+  const state = { view: 'home', subject: '全部', filter: {}, expanded: {}, selectMode: false, selected: new Set(), practiceSession: [], mineFilter: { subject: '全部', kpId: null, srcId: null }, mineStatOpen: true };
 
   /* ---------------- 通用 UI ---------------- */
   function toast(msg) {
@@ -103,7 +103,7 @@
   function updateRevBadge() {
     const badge = document.getElementById('reviewBadge');
     if (!badge) return;
-    const n = DB.dueReviews().length;
+    const n = reviewList().length;
     badge.textContent = n > 99 ? '99+' : n;
     badge.hidden = n === 0;
   }
@@ -538,7 +538,7 @@
       ${state.selectMode ? `
       <p class="nb-selcnt">已选 ${state.selected.size} 道</p>
       <div class="nb-tools nb-act">
-        <button class="btn" id="repSel">重练选中</button>
+        <button class="btn" id="repSel">练习选中</button>
         <button class="btn" id="expSel">导出PDF</button>
         <button class="btn ghost nb-danger" id="delSel">删除选中</button>
         <button class="btn ghost" id="selNone">清空选择</button>
@@ -586,10 +586,13 @@
     if (state.selectMode) {
       $('#repSel').addEventListener('click', () => {
         const ids = Array.from(state.selected);
-        if (!ids.length) { toast('请先勾选要重练的错题'); return; }
+        if (!ids.length) { toast('请先勾选要练习的错题'); return; }
         const errs = ids.map(id => DB.getError(id)).filter(Boolean);
-        if (!errs.length) { toast('没有可重练的错题'); return; }
-        renderGrade(errs, renderList);
+        if (!errs.length) { toast('没有可练习的错题'); return; }
+        // 选中题推送到复习页，与已到期复习题一起批改
+        state.practiceSession = ids;
+        setView('review');
+        toast(`已推送到复习页 ${ids.length} 道，可与其他待复习题一起批改`);
       });
       $('#delSel').addEventListener('click', () => {
         const ids = Array.from(state.selected);
@@ -1107,8 +1110,18 @@
   }
 
   /* ---------------- 复习（间隔推送） ---------------- */
-  function renderReview() {
+  // 复习页的完整题集 = 到期应复习 + 本次「练习选中」被推送到复习页的题（去重）
+  function reviewList() {
     const due = DB.dueReviews();
+    const ids = new Set(due.map(e => e.id));
+    const extra = (state.practiceSession || [])
+      .map(id => DB.getError(id))
+      .filter(e => e && !ids.has(e.id));
+    return due.concat(extra);
+  }
+
+  function renderReview() {
+    const due = reviewList();
     const mastered = DB.getErrors().filter(e => DB.isMastered(e));
     $('#view').innerHTML = `
       <div class="card" style="padding:14px 16px">
@@ -1149,7 +1162,7 @@
     $$('#revList .item-edit').forEach(b => b.addEventListener('click', ev => {
       ev.stopPropagation(); openDetail(b.dataset.edit);
     }));
-    $('#toGrade')?.addEventListener('click', renderGrade);
+    $('#toGrade')?.addEventListener('click', () => renderGrade(reviewList(), renderReview));
     updateRevBadge();
   }
 
@@ -1175,7 +1188,7 @@
     $$('#gradeList .grade-item').forEach(card => {
       const id = card.dataset.id;
       card.querySelectorAll('.pick').forEach(b => b.addEventListener('click', () => {
-        const v = b.dataset.v === 'true';
+        const v = b.dataset.v;
         if (sel[id] === v) { delete sel[id]; b.classList.remove('on'); return; }
         sel[id] = v;
         card.querySelectorAll('.pick').forEach(x => x.classList.remove('on'));
@@ -1184,14 +1197,17 @@
     });
     $('#gradeBack').addEventListener('click', backFn);
     $('#gradeSave').addEventListener('click', () => {
-      let ok = 0, bad = 0, none = 0;
+      let ok = 0, bad = 0, skip = 0, none = 0;
       due.forEach(e => {
         if (!(e.id in sel)) { none++; return; }
-        DB.recordReview(e.id, sel[e.id]);
-        if (sel[e.id]) ok++; else bad++;
+        const v = sel[e.id];
+        if (v === 'skip') { skip++; return; }   // 未练习：不记录，保持原状
+        DB.recordReview(e.id, v === 'ok');
+        if (v === 'ok') ok++; else bad++;
       });
+      state.practiceSession = [];   // 本次推送的练习题已随批改消费
       backFn();
-      toast(`已重练并记录 ${ok + bad} 道（对 ${ok} / 错 ${bad}${none ? ` · 跳过 ${none}` : ''}）· 复习锚点已更新`);
+      toast(`已记录 ${ok + bad} 道（对 ${ok} / 错 ${bad}${skip ? ` · 未练习 ${skip}` : ''}${none ? ` · 跳过 ${none}` : ''}）· 复习锚点已更新`);
     });
   }
   // 单题批改卡片：折叠题面 + 显示答案 + 对/错选择
@@ -1207,8 +1223,9 @@
         ${imgs.map(s => `<img class="grade-img zoomable" src="${s}" alt=""/>`).join('')}
         <div class="grade-ans"><span class="ga-k">答案：</span>${e.answer || '（未填写答案）'}</div>
         <div class="grade-pick">
-          <button class="pick ok" type="button" data-v="true">✓ 对</button>
-          <button class="pick bad" type="button" data-v="false">✗ 错</button>
+          <button class="pick ok" type="button" data-v="ok">✓ 对</button>
+          <button class="pick bad" type="button" data-v="bad">✗ 错</button>
+          <button class="pick skip" type="button" data-v="skip">– 未练习</button>
         </div>
       </div>`;
   }
