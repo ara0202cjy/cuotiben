@@ -130,6 +130,17 @@ body {
 .chip.active { background: var(--primary); color: #fff; border-color: var(--primary); font-weight: 600; }
 .chip .cnt { opacity: .7; font-size: 11px; margin-left: 4px; }
 
+/* ============ 数学符号快捷栏（录入页题干 / 答案） ============ */
+.math-bar { display: flex; gap: 6px; overflow-x: auto; padding: 2px 0 8px; -webkit-overflow-scrolling: touch; }
+.math-bar::-webkit-scrollbar { display: none; }
+.math-sym {
+  flex: 0 0 auto; min-width: 38px; height: 34px; padding: 0 8px;
+  border-radius: 9px; background: var(--surface); border: 1px solid var(--line);
+  color: var(--ink); font-size: 15px; cursor: pointer; font-family: var(--font);
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.math-sym:active { background: var(--primary-soft); border-color: var(--primary); }
+
 /* ============ 错题条目 ============ */
 .item {
   background: var(--surface); border-radius: var(--radius);

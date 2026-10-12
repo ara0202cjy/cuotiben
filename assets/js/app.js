@@ -837,6 +837,12 @@
   }
 
   /* ---------------- 录入错题 ---------------- */
+  // 数学符号快捷栏：常用数学符号（点击插入到题干 / 答案输入框的光标处）
+  const MATH_SYMS = ['√', '∛', '²', '³', 'ⁿ', '½', '⅓', '¼', '¾', 'π', '∠', '°', '±', '×', '÷', '≠', '≈', '≤', '≥', '→'];
+  function mathBarHTML(forId) {
+    return `<div class="math-bar" data-for="${forId}">${MATH_SYMS.map(s =>
+      `<button type="button" class="math-sym" data-sym="${s}" aria-label="插入符号 ${s}">${s}</button>`).join('')}</div>`;
+  }
   function openEntry(err) {
     const subjects = DB.getSubjects();
     const isEdit = !!err;
@@ -947,6 +953,7 @@
       ${modeSection}
       <div class="field" id="entryQField">
         <label id="entryQLabel">题干 / 错题内容</label>
+        ${mathBarHTML('entryText')}
         <textarea class="textarea" id="entryText" placeholder="输入或粘贴题目内容…">${form.text}</textarea>
       </div>
       <div class="field" id="imgField"><label>图片（可一次添加多张，从相册选择，可裁剪 / 删除）</label>
@@ -969,6 +976,7 @@
       </div>
       <div class="field" id="entryAnsField">
         <label>正确答案</label>
+        ${mathBarHTML('entryAnswer')}
         <textarea class="textarea" id="entryAnswer" placeholder="填写正确答案与解析…">${form.answer}</textarea>
       </div>
       <button class="btn" id="saveErr">${isEdit ? '保存修改' : '保存错题'}</button>`);
@@ -995,6 +1003,12 @@
     }));
     $('#entryText').addEventListener('input', e => { form.text = e.target.value; refresh(); });
     $('#entryAnswer').addEventListener('input', e => (form.answer = e.target.value));
+    // 数学符号快捷栏：点击符号插入到对应输入框的光标处（题干 / 答案各一条）
+    $$('.math-bar .math-sym').forEach(b => b.addEventListener('click', () => {
+      const bar = b.closest('.math-bar');
+      const ta = bar && document.getElementById(bar.dataset.for);
+      if (ta) insertAtCursor(ta, b.dataset.sym);
+    }));
     // 重命名知识点/来源：按 id 关联，所有使用它的错题会同步更新
     $('#renameKp').addEventListener('click', () => {
       if (!form.kpId) { toast('请先选择一个知识点再重命名'); return; }
@@ -1324,6 +1338,15 @@
       </div>`;
   }
   function esc(s) { return (s || '').replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c])); }
+  // 在输入框光标处插入文本：插入后保持焦点与光标位置，并派发 input 以同步表单状态
+  function insertAtCursor(ta, text) {
+    const start = ta.selectionStart, end = ta.selectionEnd;
+    ta.value = ta.value.slice(0, start) + text + ta.value.slice(end);
+    const pos = start + text.length;
+    ta.focus();
+    ta.setSelectionRange(pos, pos);
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+  }
 
   /* ---------------- 我的 ---------------- */
   function renderMine() {
