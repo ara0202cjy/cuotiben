@@ -232,18 +232,6 @@
       <div class="exp-meta-row"><span>收录于 ${fmtDate(e.createdAt)}</span><span>做题 ${e.reviews.length} 次 · 正确 ${ok} 次 · 错误 ${bad} 次</span></div>`;
   }
 
-  // 绑定「显示正确答案」按钮（点击展开/收起答案，不触发外层折叠）
-  function bindAnsToggle(scope) {
-    scope.querySelectorAll('.ans-wrap .link-btn').forEach(btn => {
-      btn.addEventListener('click', ev => {
-        ev.stopPropagation();
-        const box = btn.parentElement.querySelector('.exp-ans');
-        box.hidden = !box.hidden;
-        btn.textContent = box.hidden ? '显示正确答案' : '隐藏正确答案';
-      });
-    });
-  }
-
   function isDictError(e) {
     const kp = DB.getKeywords('kp').find(k => k.id === e.kpId);
     return e.subject === '语文' && kp && DB.isChineseDictKp(kp.name);
@@ -271,7 +259,7 @@
         </div>
         ${q ? `<div class="item-q">${q}</div>` : ''}
         ${hasImg ? imgs.map(s => `<img class="item-img zoomable" src="${s}" alt=""/>`).join('') : ''}
-        ${expandable ? `<div class="item-exp" hidden>${errorExpandHTML(e, false)}</div>` : `
+        ${expandable ? `<div class="item-exp" hidden>${errorExpandHTML(e, false, false)}</div>` : `
         <div class="item-when">录入于 ${fmtDate(e.createdAt)}</div>`}
       </div>`;
   }
@@ -283,7 +271,6 @@
         exp.hidden = !exp.hidden;
         it.classList.toggle('open', !exp.hidden);
       });
-      bindAnsToggle(it);
       const edit = it.querySelector('.item-edit');
       if (edit) edit.addEventListener('click', ev => {
         ev.stopPropagation();
@@ -1157,10 +1144,6 @@
       <h3>错题详情</h3>
       <div class="item-meta">${metaTagsHTML(e)}</div>
       ${questionBlockHTML(e, isPinyin)}
-      <div class="ans-wrap" style="margin-top:10px">
-        <button class="btn ghost" id="showAnsBtn">显示正确答案</button>
-        <div class="detail-a" id="ansBox" style="display:none">${e.answer || '（未填写）'}</div>
-      </div>
       <div class="item-when" style="margin-top:8px">
         ${DB.isMastered(e) ? '🟢 已掌握 · 已停止推送' : '🔔 下次推送：' + fmtDue(DB.nextDueDate(e))}
       </div>
@@ -1171,10 +1154,6 @@
         <button class="btn ghost" id="delErr">删除</button>
         <button class="btn" id="editErr">编辑</button>
       </div>`);
-    $('#showAnsBtn').addEventListener('click', () => {
-      $('#ansBox').style.display = 'block';
-      $('#showAnsBtn').style.display = 'none';
-    });
     $('#delErr').addEventListener('click', () => {
       if (confirm('确定删除这道错题？')) { DB.deleteError(id); closeSheet(); toast('已删除'); setView(state.view); }
     });
