@@ -16,7 +16,9 @@
   const CLOUD_KEY = 'cb_cloud_v1';            // 本地游客模式下的云端配置
   // 注意：token 不写进源码（GitHub Pages 为公开仓库，硬编码凭证会被 secret scanning 拦截且会泄露）。
   // 用户登录 lvcheng 后，在「设置 → 云端同步」里填一次即可，存浏览器本地，之后全自动同步。
-  const LVCHENG = { name: 'lvcheng', pass: '000000', gistId: 'f133c0baa8e6259ff36df4e584679544' };
+  // 内置 lvcheng 仅为作者演示账户；其 Gist ID 不再硬编码于源码（避免开源/分享泄漏账户关联）。
+  // 首次登录该账户时，「配置云端同步」引导会提示填写 Gist ID（仅存本机）。已在本机登录过的设备仍沿用本地已保存的配置。
+  const LVCHENG = { name: 'lvcheng', pass: '000000', gistId: '' };
 
   // 简单的密码混淆（避免明文，非高强度加密；本机个人工具足够）
   function hashPwd(s) {
@@ -256,12 +258,23 @@
   }
 
   /* ---------- 复习计划（间隔推送 + 掌握判定） ---------- */
+  // 错答累计次数（用于「易错」标注）
+  function wrongCount(e) { return (e.reviews || []).filter(r => r.correct === false).length; }
+  // 错题次数 ≥ 2 → 标为易错（leech）：需更密集复习、连续 4 次全对才算已掌握
+  function isLeech(e) { return wrongCount(e) >= 2; }
   // 第 n 次复习的间隔天数（基于错题创建时间）：
-  //   未掌握（unknown）：+2、+10、+30、+60、+90 …（之后每 30 天）
+  //   未掌握（unknown）：+1、+10、+30、+60、+90 …（之后每 30 天）
   //   部分掌握（fuzzy）：+30、+60、+90 …（之后每 30 天）
-  function dueDaysForReview(n, mastery) {
-    if (mastery === 'fuzzy') return 30 * (n + 1);   // 30, 60, 90, 120 ...
-    if (n === 0) return 2;                          // 未掌握：2
+  //   易错（leech）：+1、+2、+4、+11、+18 …（更密集，增加练习次数）
+  function dueDaysForReview(n, mastery, leech) {
+    if (mastery === 'fuzzy') return 30 * (n + 1);   // 部分掌握：30, 60, 90, 120 ...
+    if (leech) {                                     // 易错：更密集的复习节奏
+      if (n === 0) return 1;
+      if (n === 1) return 2;
+      if (n === 2) return 4;
+      return 7 * (n - 2) + 4;
+    }
+    if (n === 0) return 1;                          // 未掌握：首次 +1 天（次日，趁热打铁）
     if (n === 1) return 10;                         // 未掌握：10
     return 30 * (n - 1);                            // 未掌握：30, 60, 90 ...
   }
@@ -273,13 +286,16 @@
   }
   // 下一次应复习时间 = 锚点 + 间隔
   //   - 最近一次复习判「错」：间隔 1 天（当天错，次日继续推送，直到答对）
-  //   - 其余：按已复习次数 n 取间隔（未掌握 +2/+10/+30…，部分掌握 +30…+）
+  //   - 其余：按已复习次数 n 取间隔（未掌握 +1/+10/+30…，部分掌握 +30…+，易错更密）
+  //   - 未练习顺延：若设置过 snoozedUntil，下次到期不早于该时间戳
   function nextDueDate(e) {
     const rv = e.reviews || [];
     const anchor = lastReviewDate(e);
     const last = rv.length ? rv[rv.length - 1] : null;
-    const gap = (last && last.correct === false) ? 1 : dueDaysForReview(rv.length, e.mastery);
-    return anchor + gap * DAY;
+    const gap = (last && last.correct === false) ? 1 : dueDaysForReview(rv.length, e.mastery, isLeech(e));
+    const due = anchor + gap * DAY;
+    const snooze = e.snoozedUntil || 0;             // 未练习顺延：下次到期不早于该时间戳
+    return Math.max(due, snooze);
   }
   // 从 startIdx 起往回数，末尾「连续答对」的次数
   function tailCorrect(reviews, startIdx) {
@@ -292,14 +308,16 @@
     return c;
   }
   // 是否已掌握（达成后即停止推送）：
-  //   未掌握：除首次（+2 天）外，连续答对 2 次
+  //   未掌握：连续答对 2 次
   //   部分掌握：连续答对 2 次
+  //   易错（错≥2）：连续答对 4 次才算已掌握（更高练习次数门槛）
   //   手动标记 known：直接算已掌握
   function isMastered(e) {
     if (e.mastery === 'known') return true;
     const rv = e.reviews || [];
-    if (e.mastery === 'fuzzy') return tailCorrect(rv, 0) >= 2;
-    return tailCorrect(rv, 1) >= 2;   // 未掌握：跳过首次 +2 天那次
+    const need = isLeech(e) ? 4 : 2;                // 易错题需连续 4 次全对才算已掌握
+    if (e.mastery === 'fuzzy') return tailCorrect(rv, 0) >= need;
+    return tailCorrect(rv, 1) >= need;              // 未掌握：跳过首次那次
   }
   // 待复习列表（未掌握且已到推送时间），按到期先后排序
   function dueReviews() {
@@ -314,7 +332,9 @@
     if (!e) return;
     e.reviews = e.reviews || [];
     e.reviews.push({ date: now(), correct: !!correct });
-    if (isMastered(e)) e.mastery = 'known';   // 达成条件 → 归类已掌握，之后不再推送
+    if (wrongCount(e) >= 2) e.leech = true;          // 累计错 ≥2 → 标易错（红标，提醒换方法）
+    // 已掌握题重练：无论对错都不自动推送（保持 known）；其余题按连续正确次数判定是否归为已掌握
+    if (e.mastery !== 'known' && isMastered(e)) e.mastery = 'known';
     updateError(id, e);
     autoSyncTick();
   }
@@ -445,6 +465,7 @@
       subjects: getSubjects(),
       keywords: read(K('keywords'), []),
       errors: read(K('errors'), []),
+      practiceSession: getPracticeSession(),
     };
   }
   function exportData() { return snapshot(); }
@@ -457,8 +478,20 @@
     autoSyncTick();
   }
   function clearAll() {
-    [K('subjects'), K('errors'), K('keywords')].forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
+    [K('subjects'), K('errors'), K('keywords'), K('practice')].forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
     getSubjects(); // 重建默认科目，保证应用仍可正常使用
+  }
+  // 练习队列（选题重练）：持久化到本账户存储，并随快照同步到云端（多设备可延续 / 远程管理）
+  function getPracticeSession() { return read(K('practice'), []); }
+  function setPracticeSession(arr) {
+    write(K('practice'), Array.isArray(arr) ? arr : []);
+    autoSyncTick();   // 同步到云端，使其他设备也能看到 / 继续该练习队列
+  }
+  // 未练习：顺延到明天再推送（不记录对错，仅延后下次到期时间）
+  function snooze(id) {
+    const e = getError(id); if (!e) return;
+    e.snoozedUntil = Date.now() + DAY;
+    updateError(id, e); autoSyncTick();
   }
 
   /* ---------- 云端同步（GitHub Gist，纯前端，无需后端） ---------- */
@@ -511,6 +544,9 @@
     const kwMap = new Map();
     [...(local.keywords || []), ...(cloud.keywords || [])].forEach(k => kwMap.set(k.id || k.name, k));
     local.keywords = Array.from(kwMap.values());
+    // 练习队列取并集（多设备各自添加的题都保留，避免一方覆盖另一方）
+    const ps = new Set([...(local.practiceSession || []), ...(cloud.practiceSession || [])]);
+    local.practiceSession = Array.from(ps);
     _importing = true;            // 合并期间抑制自动回传，避免无意义上传/递归
     try { importData(local); }
     finally { _importing = false; }
@@ -614,6 +650,7 @@
     getKeywords, addKeyword, updateKeyword, deleteKeyword, pruneUnusedKeywords,
     getErrors, getError, addError, updateError, deleteError,
     dueDaysForReview, nextDueDate, isMastered, dueReviews, recordReview,
+    isLeech, wrongCount, snooze, getPracticeSession, setPracticeSession,
     toPinyin, seedIfEmpty, seedReviewDemo,
     exportData, importData, clearAll, snapshot,
     gistUpload, gistDownload, gistTest,

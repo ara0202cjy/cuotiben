@@ -151,10 +151,15 @@ body {
 .item-q { font-size: 16px; color: var(--ink); margin: 6px 0; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .item-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .tag { font-size: 11px; background: var(--surface-2); color: var(--ink-2); padding: 3px 9px; border-radius: 10px; }
+.tag.leech { background: #fbe3e3; color: #c0392b; font-weight: 600; }
+.leech-n { color: #c0392b; font-weight: 600; font-size: 11px; }
 .item-when { font-size: 11px; color: var(--ink-3); margin-top: 8px; }
 .item-check { width: 17px; height: 17px; flex: 0 0 auto; accent-color: var(--primary); margin: 0; cursor: pointer; }
 .item.sel { border-color: var(--primary); background: var(--primary-soft); }
 /* 笔记本置顶工具栏：筛选 / 勾选 / 全选 / 展开折叠 */
+.nb-search { margin-bottom: 10px; }
+.nb-search input { width: 100%; box-sizing: border-box; padding: 9px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); color: var(--ink); font-size: 14px; }
+.nb-search input:focus { outline: none; border-color: var(--primary); }
 .nb-tools { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
 .nb-row1 { flex-wrap: nowrap; }
 .nb-row1 .btn { flex: 1; min-width: 0; padding-left: 6px; padding-right: 6px; }
@@ -333,6 +338,16 @@ body {
 .ms-mrow .bar { flex: 1; height: 9px; background: var(--surface-2); border-radius: 6px; overflow: hidden; }
 .ms-mrow .bar i { display: block; height: 100%; }
 .ms-mrow > b { width: 24px; text-align: right; flex: 0 0 auto; }
+/* 掌握率环形 + 连续打卡仪表盘 */
+.dash { display: flex; align-items: center; gap: 14px; }
+.donut { width: 92px; height: 92px; border-radius: 50%; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; }
+.donut-hole { width: 64px; height: 64px; border-radius: 50%; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.donut-hole b { font-size: 18px; color: #5f9c78; line-height: 1.1; }
+.donut-hole span { font-size: 10px; color: var(--ink-2); }
+.dash-stats { flex: 1; display: flex; gap: 8px; }
+.ds { flex: 1; text-align: center; background: var(--surface-2); border-radius: 12px; padding: 8px 4px; }
+.ds .num { font-size: 20px; font-weight: 700; color: var(--ink); line-height: 1.1; }
+.ds .lab { font-size: 11px; color: var(--ink-2); margin-top: 2px; }
 .ms-wrong .ms-mrow > span { width: 48px; }
 .kw-cnt { font-size: 11px; color: var(--ink-3); margin-left: 6px; }
 
@@ -538,6 +553,7 @@ body {
 .item.open .item-q { display: none; }
 .exp-q { font-size: 14px; color: var(--ink); line-height: 1.6; white-space: pre-wrap; word-break: break-word; margin-bottom: 8px; }
 .exp-img { max-width: 100%; border-radius: 8px; margin-bottom: 8px; display: block; }
+.item-img { width: 100%; max-height: 150px; object-fit: contain; border-radius: 8px; margin: 8px 0 0; background: var(--surface-2); display: block; }
 .exp-ans {
   margin-top: 6px; font-size: 14px; color: var(--ink); line-height: 1.6;
   white-space: pre-wrap; word-break: break-word; background: var(--primary-soft);

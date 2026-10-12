@@ -36,7 +36,10 @@
     next.onclick = ev => { ev.stopPropagation(); show(idx + 1); };
   }
 
-  const state = { view: 'home', subject: '全部', filter: {}, expanded: {}, selectMode: false, selected: new Set(), practiceSession: [], mineFilter: { subject: '全部', kpId: null, srcId: null }, mineStatOpen: true };
+  const state = { view: 'home', subject: '全部', filter: {}, expanded: {}, selectMode: false, selected: new Set(), mineFilter: { subject: '全部', kpId: null, srcId: null }, mineStatOpen: true, search: '' };
+  // 练习队列（选题重练）已持久化到账户存储并随云端同步，统一经 DB 读写（不再仅存内存）
+  const getPractice = () => DB.getPracticeSession() || [];
+  const setPractice = arr => DB.setPracticeSession(arr);
 
   /* ---------------- 通用 UI ---------------- */
   function toast(msg) {
@@ -73,12 +76,13 @@
     return DB.isMastered(e) ? masteryTag('known') : masteryTag(e.mastery || 'unknown');
   }
   function kwName(id) { const k = DB.getKeywords().find(x => x.id === id); return k ? k.name : ''; }
-  // 卡片顶部统一标签（高频词方式）：科目 → 知识点 → 来源 → 掌握情况
+  // 卡片顶部统一标签（高频词方式）：科目 → 知识点 → 来源 → 掌握情况 → 易错
   function metaTagsHTML(e) {
     return subjTag(e.subject)
       + (e.kpId ? `<span class="tag">${esc(kwName(e.kpId))}</span>` : '')
       + (e.srcId ? `<span class="tag">${esc(kwName(e.srcId))}</span>` : '')
-      + masteryDisplay(e);
+      + masteryDisplay(e)
+      + (DB.isLeech(e) ? '<span class="tag leech">易错</span>' : '');
   }
   function fmtDate(iso) {
     const d = new Date(iso); const p = n => (n < 10 ? '0' : '') + n;
@@ -172,14 +176,14 @@
     }
   }
   // 统一展开详情块：知识点 + 题目全文 + 正确答案(点击查看) + 收录时间 + 做题记录
-  function errorExpandHTML(e) {
+  function errorExpandHTML(e, showImg = true) {
     const isP = isDictError(e);
     const qFull = isP ? (e.pinyin || e.text || '') : (e.text || '');
     const ok = e.reviews.filter(r => r.correct).length;
     const bad = e.reviews.length - ok;
     return `
-      <div class="exp-q">${qFull || (imgList(e).length ? '［含图片错题］' : '（未填写题干）')}</div>
-      ${imgList(e).map(s => `<img class="exp-img zoomable" src="${s}" alt=""/>`).join('')}
+      <div class="exp-q">${qFull || '（未填写题干）'}</div>
+      ${showImg ? imgList(e).map(s => `<img class="exp-img zoomable" src="${s}" alt=""/>`).join('') : ''}
       <div class="ans-wrap">
         <button class="link-btn" type="button">显示正确答案</button>
         <div class="exp-ans" hidden>${e.answer || '（未填写）'}</div>
@@ -212,9 +216,10 @@
     return h || '<div class="detail-q">（无内容）</div>';
   }
   function itemHTML(e, withDel, expandable, selectable, selected) {
-    const hasImg = imgList(e).length > 0;
+    const imgs = imgList(e);
+    const hasImg = imgs.length > 0;
     const isP = isDictError(e);
-    const q = (isP ? (e.pinyin || e.text || '') : (e.text || '')).slice(0, 60) || (hasImg ? '［含图片错题］' : '（未填写题干）');
+    const q = (isP ? (e.pinyin || e.text || '') : (e.text || '')).slice(0, 60) || '（未填写题干）';
     return `
       <div class="item${selectable && selected ? ' sel' : ''}" data-id="${e.id}">
         ${withDel ? `<button class="item-edit" data-edit="${e.id}" title="编辑 / 删除" aria-label="编辑"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>` : ''}
@@ -223,7 +228,8 @@
           ${metaTagsHTML(e)}
         </div>
         <div class="item-q">${q}</div>
-        ${expandable ? `<div class="item-exp" hidden>${errorExpandHTML(e)}</div>` : `
+        ${hasImg ? imgs.map(s => `<img class="item-img zoomable" src="${s}" alt=""/>`).join('') : ''}
+        ${expandable ? `<div class="item-exp" hidden>${errorExpandHTML(e, false)}</div>` : `
         <div class="item-when">录入于 ${fmtDate(e.createdAt)}</div>`}
       </div>`;
   }
@@ -326,10 +332,9 @@
       <div class="set-form">
         <label class="set-lbl">GitHub Token${isLv ? '（lvcheng 专用）' : ''}</label>
         <input class="set-input" id="guideToken" type="password" placeholder="ghp_ 开头" autocomplete="off" />
-        ${isLv ? '' : `
-        <label class="set-lbl">Gist ID</label>
+        <label class="set-lbl">Gist ID${isLv ? '（lvcheng 专用）' : ''}</label>
         <input class="set-input" id="guideGist" type="text" placeholder="gist 地址里的那串 ID" value="${esc(c.gistId || '')}" />
-        <label class="set-chk"><input type="checkbox" id="guideAuto" ${c.autoSync ? 'checked' : ''}/> 自动同步（任何修改实时上传）</label>`}
+        <label class="set-chk"><input type="checkbox" id="guideAuto" ${c.autoSync ? 'checked' : ''}/> 自动同步（任何修改实时上传）</label>
         <div class="set-form-btns">
           <button class="btn small" id="guideSave">保存并同步</button>
           ${isLv ? '<button class="btn small ghost" id="guideSkip">稍后（暂不备份）</button>' : ''}
@@ -340,7 +345,8 @@
       const token = $('#guideToken').value.trim();
       if (!token) { $('#guideStatus').textContent = '请输入 Token'; return; }
       const patch = { token };
-      if (!isLv) { patch.gistId = $('#guideGist').value.trim(); patch.autoSync = $('#guideAuto').checked; }
+      patch.gistId = $('#guideGist').value.trim();
+      patch.autoSync = $('#guideAuto').checked;
       DB.setCloud(patch);
       const btn = $('#guideSave'); btn.disabled = true;
       try {
@@ -517,18 +523,33 @@
   }
 
   /* ---------------- 错题本（折叠错题本 + 预览/筛选） ---------------- */
+  // 全库搜索：匹配 题目 / 答案 / 拼音 / 知识点 / 来源
+  function searchMatch(e) {
+    const q = (state.search || '').trim().toLowerCase();
+    if (!q) return true;
+    const hay = [e.text, e.answer, e.pinyin, kwName(e.kpId), kwName(e.srcId)]
+      .filter(Boolean).join(' ').toLowerCase();
+    return hay.indexOf(q) !== -1;
+  }
+  // 某学科在当前「筛选 + 搜索」下的可见错题
+  function visibleSubjectErrs(s) {
+    return listSubjectErrs(s).filter(searchMatch);
+  }
   function renderList() {
     const subjects = DB.getSubjects();
     const expanded = state.expanded || {};
     const f = state.filter;
-    const hasFilter = !!(f.kpId || f.srcId || f.mastery || f.from || f.to || (state.subject && state.subject !== '全部'));
+    const hasFilter = !!(f.kpId || f.srcId || f.mastery || f.from || f.to || (state.subject && state.subject !== '全部') || (state.search && state.search.trim()));
     const total = DB.getErrors().length;
     const allOpen = subjects.length > 0 && subjects.every(s => expanded[s]);
 
-    // 筛选模式下，只展示「有符合筛选错题」的学科笔记本，保持界面紧凑
-    const showSubjects = hasFilter ? subjects.filter(s => listSubjectErrs(s).length > 0) : subjects;
+    // 筛选 / 搜索模式下，只展示「有符合筛选错题」的学科笔记本，保持界面紧凑
+    const showSubjects = hasFilter ? subjects.filter(s => visibleSubjectErrs(s).length > 0) : subjects;
 
     $('#view').innerHTML = `
+      <div class="nb-search">
+        <input id="nbSearch" type="search" placeholder="搜索题目 / 答案 / 拼音 / 知识点…" value="${esc(state.search || '')}" />
+      </div>
       <div class="nb-tools nb-row1">
         <button class="btn ghost" id="openFilter">筛选${filterLabel()}</button>
         <button class="btn ghost" id="toggleSelect">${state.selectMode ? '完成' : '勾选'}</button>
@@ -546,7 +567,7 @@
       <p class="list-hint">点开任一错题本可预览内容 · 共 ${total} 道 · 点 ✕ 可删减${hasFilter ? '（已按筛选隐藏无匹配学科）' : ''}</p>
       ${showSubjects.length ? showSubjects.map(s => {
         const errsAll = DB.getErrors({ subject: s });
-        const errs = listSubjectErrs(s);
+        const errs = visibleSubjectErrs(s);
         const isOpen = !!expanded[s];
         const allSel = errs.length > 0 && errs.every(e => state.selected.has(e.id));
         return `
@@ -574,7 +595,7 @@
     $('#selectAll').addEventListener('click', () => {
       state.selectMode = true;
       const ids = [];
-      showSubjects.forEach(s => listSubjectErrs(s).forEach(e => ids.push(e.id)));
+      showSubjects.forEach(s => visibleSubjectErrs(s).forEach(e => ids.push(e.id)));
       state.selected = new Set(ids);
       renderList();
     });
@@ -583,14 +604,21 @@
       subjects.forEach(s => (state.expanded[s] = !all));
       renderList();
     });
+    // 全库搜索：输入即筛选（重渲染后保持焦点与光标位置）
+    const sb = $('#nbSearch');
+    if (sb) sb.addEventListener('input', () => {
+      state.search = sb.value;
+      renderList();
+      const ns = $('#nbSearch'); if (ns) { const v = ns.value; ns.focus(); ns.value = ''; ns.value = v; }
+    });
     if (state.selectMode) {
       $('#repSel').addEventListener('click', () => {
         const ids = Array.from(state.selected);
         if (!ids.length) { toast('请先勾选要练习的错题'); return; }
         const errs = ids.map(id => DB.getError(id)).filter(Boolean);
         if (!errs.length) { toast('没有可练习的错题'); return; }
-        // 选中题推送到复习页，与已到期复习题一起批改
-        state.practiceSession = ids;
+        // 选中题推送到复习页，与已到期复习题一起批改（练习队列持久化，关页/换设备不丢）
+        setPractice(ids);
         setView('review');
         toast(`已推送到复习页 ${ids.length} 道，可与其他待复习题一起批改`);
       });
@@ -630,7 +658,7 @@
   function bindBookChecks() {
     $$('.book-check').forEach(c => {
       const s = c.dataset.s;
-      const errs = listSubjectErrs(s);
+      const errs = visibleSubjectErrs(s);
       const sel = errs.filter(e => state.selected.has(e.id)).length;
       c.indeterminate = sel > 0 && sel < errs.length;
       c.addEventListener('click', e => {
@@ -1124,7 +1152,7 @@
   function reviewList() {
     const due = DB.dueReviews();
     const ids = new Set(due.map(e => e.id));
-    const extra = (state.practiceSession || [])
+    const extra = getPractice()
       .map(id => DB.getError(id))
       .filter(e => e && !ids.has(e.id));
     return due.concat(extra);
@@ -1136,7 +1164,7 @@
     $('#view').innerHTML = `
       <div class="card" style="padding:14px 16px">
         <p class="card-h" style="margin-bottom:6px">复习推送计划</p>
-        <p style="font-size:12.5px;color:var(--ink-2);margin:0;line-height:1.6"><b>未掌握</b>：按 +2 / +10 / +30 / +60 / +90 …天推送，除首次外连续答对 2 次即归为已掌握；<b>部分掌握</b>：按 +30 / +60 / +90 …天推送，连续答对 2 次即归为已掌握。已掌握不再推送。</p>
+        <p style="font-size:12.5px;color:var(--ink-2);margin:0;line-height:1.6"><b>未掌握</b>：新题次日即推，按 +1 / +10 / +30 / +60 …天推送，连续答对 2 次即归为已掌握；<b>部分掌握</b>：按 +30 / +60 / +90 …天推送，连续答对 2 次即归为已掌握；<b>易错题</b>（错≥2 次，红标）：节奏更密、需连续 4 次全对才算已掌握。已掌握不再自动推送，可在错题本勾选重练。</p>
       </div>
       ${due.length === 0
         ? '<div class="empty"><span class="em-ico">🌱</span>今天没有需要复习的错题，继续保持！</div>'
@@ -1246,11 +1274,11 @@
       due.forEach(e => {
         if (!(e.id in sel)) { none++; return; }
         const v = sel[e.id];
-        if (v === 'skip') { skip++; return; }   // 未练习：不记录，保持原状
+        if (v === 'skip') { skip++; DB.snooze(e.id); return; }   // 未练习：不记录对错，顺延到明天再推
         DB.recordReview(e.id, v === 'ok');
         if (v === 'ok') ok++; else bad++;
       });
-      state.practiceSession = [];   // 本次推送的练习题已随批改消费
+      setPractice([]);   // 本次推送的练习题已随批改消费
       backFn();
       toast(`已记录 ${ok + bad} 道（对 ${ok} / 错 ${bad}${skip ? ` · 未练习 ${skip}` : ''}${none ? ` · 跳过 ${none}` : ''}）· 复习锚点已更新`);
     });
@@ -1260,7 +1288,7 @@
     const isP = isDictError(e);
     const imgs = imgList(e);
     const q = (isP ? (e.pinyin || e.text || '') : (e.text || '')).slice(0, 120)
-      || (imgs.length ? '［含图片错题］' : '（未填写题干）');
+      || '（未填写题干）';
     const hasAns = !!(e.answer && String(e.answer).trim());
     return `
       <div class="grade-item" data-id="${e.id}">
@@ -1303,7 +1331,20 @@
     $('#msToggle').addEventListener('click', () => { state.mineStatOpen = !state.mineStatOpen; renderMine(); });
     bindMineStat();
   }
-  // 「我的」页内联掌握统计：筛选（学科/知识点/来源）+ 对错情况 + 掌握情况
+  // 连续打卡天数：从今天/昨天起，逐日回溯有复习记录的最长连续天数
+  function computeStreak(allErrs) {
+    const days = new Set();
+    allErrs.forEach(e => (e.reviews || []).forEach(r => {
+      const dt = new Date(r.date); if (!isNaN(dt)) days.add(dt.toDateString());
+    }));
+    if (!days.size) return 0;
+    const d = new Date(); d.setHours(0, 0, 0, 0);
+    if (!days.has(d.toDateString())) d.setDate(d.getDate() - 1); // 今天还没练也允许从昨天起算
+    let streak = 0;
+    while (days.has(d.toDateString())) { streak++; d.setDate(d.getDate() - 1); }
+    return streak;
+  }
+  // 「我的」页内联掌握统计：仪表盘 + 筛选（学科/知识点/来源）+ 对错情况 + 掌握情况
   function mineStatHTML() {
     const f = state.mineFilter;
     const subs = DB.getSubjects();
@@ -1328,14 +1369,42 @@
     const subChips = ['全部', ...subs].map(s => `<button class="chip ${s === f.subject ? 'active' : ''}" data-sub="${esc(s)}">${esc(s)}</button>`).join('');
     const kpChips = kps.length ? kps.map(k => `<button class="chip ${k.id === f.kpId ? 'active' : ''}" data-kp="${k.id}">${esc(k.name)}</button>`).join('') : '<span class="ms-empty">暂无知识点</span>';
     const srcChips = srcs.length ? srcs.map(k => `<button class="chip ${k.id === f.srcId ? 'active' : ''}" data-src="${k.id}">${esc(k.name)}</button>`).join('') : '<span class="ms-empty">暂无来源</span>';
+    // 仪表盘：已掌握率环形 + 连续打卡 + 学科分布（基于全量数据）
+    const knownPct = errs.length ? Math.round(known / errs.length * 100) : 0;
+    const leechCount = errs.filter(e => DB.isLeech(e)).length;
+    const streak = computeStreak(DB.getErrors());
+    const subjDist = DB.getSubjects().map(s => {
+      const es = DB.getErrors({ subject: s });
+      return { s, total: es.length, known: es.filter(e => DB.isMastered(e)).length, leech: es.filter(e => DB.isLeech(e)).length };
+    });
+    const maxSubj = Math.max(1, ...subjDist.map(x => x.total));
+    const subjDistHTML = subjDist.map(x => `
+      <div class="ms-mrow"><span>${esc(x.s)}</span><div class="bar"><i style="width:${Math.round(x.total / maxSubj * 100)}%;background:#5f9c78"></i></div><b>${x.total}${x.leech ? ` <span class="leech-n">易${x.leech}</span>` : ''}</b></div>`).join('');
     return `
-      <div class="ms-filters">
-        <div class="ms-frow"><span class="ms-fl">学科</span><div class="kw-box">${subChips}</div></div>
-        <div class="ms-frow"><span class="ms-fl">知识点</span><div class="kw-box">${kpChips}</div></div>
-        <div class="ms-frow"><span class="ms-fl">来源</span><div class="kw-box">${srcChips}</div></div>
-      </div>
       <div class="ms-stat">
-        <div class="ms-block">
+        <div class="ms-block dash">
+          <div class="donut" style="background:conic-gradient(#5f9c78 ${knownPct}%, #e3ece6 ${knownPct}% 100%)">
+            <div class="donut-hole"><b>${knownPct}%</b><span>已掌握率</span></div>
+          </div>
+          <div class="dash-stats">
+            <div class="ds"><div class="num">${streak}</div><div class="lab">连续打卡(天)</div></div>
+            <div class="ds"><div class="num">${errs.length}</div><div class="lab">错题总数</div></div>
+            <div class="ds"><div class="num" style="color:var(--bad)">${leechCount}</div><div class="lab">易错题</div></div>
+          </div>
+        </div>
+        <div class="ms-block" style="margin-top:14px">
+          <p class="card-h">学科分布</p>
+          <div class="ms-mast">${subjDistHTML}</div>
+        </div>
+        <div class="ms-block" style="margin-top:14px">
+          <p class="card-h">筛选</p>
+          <div class="ms-filters">
+            <div class="ms-frow"><span class="ms-fl">学科</span><div class="kw-box">${subChips}</div></div>
+            <div class="ms-frow"><span class="ms-fl">知识点</span><div class="kw-box">${kpChips}</div></div>
+            <div class="ms-frow"><span class="ms-fl">来源</span><div class="kw-box">${srcChips}</div></div>
+          </div>
+        </div>
+        <div class="ms-block" style="margin-top:14px">
           <p class="card-h">对错情况</p>
           <div class="stat-row">
             <div class="stat"><div class="num">${revTotal}</div><div class="lab">总复习</div></div>
@@ -1546,7 +1615,7 @@
       <div id="expList" style="max-height:46vh;overflow:auto">
         ${list.map(e => {
           const q = (isDictError(e) ? (e.pinyin || e.text || '') : (e.text || '')).slice(0, 40)
-            || (imgList(e).length ? '［含图片错题］' : '（未填写题干）');
+            || '（未填写题干）';
           return `
           <label class="exp-row">
             <input type="checkbox" class="exp-chk" data-id="${e.id}" checked/>
