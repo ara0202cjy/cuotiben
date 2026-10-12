@@ -344,7 +344,7 @@
       DB.setCloud(patch);
       const btn = $('#guideSave'); btn.disabled = true;
       try {
-        await DB.gistDownload().catch(() => DB.gistUpload()); // 先拉取已有数据，失败（如首次）则上传当前
+        await DB.gistUpload().catch(() => {}); // 合并云端 + 本地后上传（本地优先，避免多设备后写覆盖丢数据）
         closeSheet(); toast('云端已配置并同步 ✓'); setView(state.view);
       } catch (e) { $('#guideStatus').textContent = '同步失败：' + e.message; btn.disabled = false; }
     };
@@ -989,10 +989,20 @@
     $('#imgInput').addEventListener('change', e => {
       const files = Array.from(e.target.files || []); if (!files.length) return;
       let done = 0;
+      const finish = src => {
+        form.images.push(src);
+        if (++done === files.length) { renderImgPreview(); refresh(); }
+      };
       files.forEach(file => {
-        const r = new FileReader();
-        r.onload = ev => { form.images.push(ev.target.result); if (++done === files.length) { renderImgPreview(); refresh(); } };
-        r.readAsDataURL(file);
+        compressImage(file)
+          .then(finish)
+          .catch(() => {
+            // 压缩失败兜底：原样读取，避免无法添加图片
+            const r = new FileReader();
+            r.onload = ev => finish(ev.target.result);
+            r.onerror = () => finish('');   // 极端失败也不阻塞计数
+            r.readAsDataURL(file);
+          });
       });
       e.target.value = '';
     });
@@ -1169,6 +1179,35 @@
   // 批改 / 重练模式：题目折叠展示、答案全部显示，逐题勾选「对 / 错」后统一记录。
   // list 可传入任意错题集合（如笔记本勾选的题目）；不传则默认使用「待复习」集合。
   // back 为保存后回退函数（默认返回复习页）。
+  // 图片压缩：上传前把原图压到最大边 1200px、JPEG 0.7，体积可降 10–20 倍，避免 base64 原图撑爆 localStorage 配额
+  function compressImage(file, maxDim, quality) {
+    maxDim = maxDim || 1200; quality = (quality == null ? 0.7 : quality);
+    return new Promise((resolve, reject) => {
+      if (!file || !file.type || !file.type.startsWith('image/')) {
+        const r = new FileReader();
+        r.onload = ev => resolve(ev.target.result);
+        r.onerror = () => reject(new Error('读取失败'));
+        r.readAsDataURL(file); return;
+      }
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        let w = img.width, h = img.height;
+        if (w > maxDim || h > maxDim) {
+          const scale = Math.min(maxDim / w, maxDim / h);
+          w = Math.max(1, Math.round(w * scale)); h = Math.max(1, Math.round(h * scale));
+        }
+        const cv = document.createElement('canvas');
+        cv.width = w; cv.height = h;
+        cv.getContext('2d').drawImage(img, 0, 0, w, h);
+        try { resolve(cv.toDataURL('image/jpeg', quality)); }
+        catch (e) { reject(e); }
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('图片解码失败')); };
+      img.src = url;
+    });
+  }
   function renderGrade(list, back) {
     const due = (list && list.length) ? list : DB.dueReviews();
     const backFn = back || (() => renderReview());
@@ -1180,7 +1219,7 @@
         <span class="grade-title">${gTitle} · 共 ${due.length} 道</span>
         <button class="btn small" id="gradeSave">保存批改</button>
       </div>
-      <p class="grade-tip">题目以折叠形式展示，答案已全部显示；逐题勾选「对 / 错」，完成后点「保存批改」记录。</p>
+      <p class="grade-tip">先凭记忆自测，需要核对时点「显示答案」，再勾选「对 / 错」；点「未练习」表示本次跳过不记录。</p>
       <div id="gradeList">
         ${due.map(gradeItemHTML).join('')}
       </div>`;
@@ -1195,6 +1234,12 @@
         b.classList.add('on');
       }));
     });
+    $$('#gradeList .btn-show-ans').forEach(b => b.addEventListener('click', () => {
+      const card = b.closest('.grade-item');
+      const ans = card && card.querySelector('.grade-ans');
+      if (ans) ans.style.display = 'block';
+      b.style.display = 'none';
+    }));
     $('#gradeBack').addEventListener('click', backFn);
     $('#gradeSave').addEventListener('click', () => {
       let ok = 0, bad = 0, skip = 0, none = 0;
@@ -1216,12 +1261,14 @@
     const imgs = imgList(e);
     const q = (isP ? (e.pinyin || e.text || '') : (e.text || '')).slice(0, 120)
       || (imgs.length ? '［含图片错题］' : '（未填写题干）');
+    const hasAns = !!(e.answer && String(e.answer).trim());
     return `
       <div class="grade-item" data-id="${e.id}">
         <div class="grade-top">${metaTagsHTML(e)}</div>
         <div class="grade-q">${q}</div>
         ${imgs.map(s => `<img class="grade-img zoomable" src="${s}" alt=""/>`).join('')}
-        <div class="grade-ans"><span class="ga-k">答案：</span>${e.answer || '（未填写答案）'}</div>
+        <div class="grade-ans"${hasAns ? ' style="display:none"' : ''}><span class="ga-k">答案：</span>${e.answer || '（未填写答案）'}</div>
+        ${hasAns ? '<button class="btn-show-ans" type="button">显示答案</button>' : ''}
         <div class="grade-pick">
           <button class="pick ok" type="button" data-v="ok">✓ 对</button>
           <button class="pick bad" type="button" data-v="bad">✗ 错</button>
@@ -1560,7 +1607,7 @@
     if (!a) { toast('请先登录账户后再同步'); return false; }
     if (!c.token || !c.gistId) { toast('本机未配置云端：请退出登录后重新登录，按提示填一次 Token'); return false; }
     try {
-      await DB.gistDownload().catch(() => DB.gistUpload());
+      await DB.gistUpload().catch(() => {}); // 合并云端 + 本地后上传（双向同步，避免覆盖）
       setView(state.view); updateRevBadge();
       return true;
     } catch (e) { toast('同步失败：' + e.message); return false; }

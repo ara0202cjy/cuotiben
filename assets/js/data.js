@@ -464,6 +464,8 @@
   /* ---------- 云端同步（GitHub Gist，纯前端，无需后端） ---------- */
   // 配置存本地：{ token, gistId, lastSync, lastResult }
   const GIST_FILE = 'cuotiben.json';
+  // 同步状态标记（提前声明，供 mergeIntoLocal 使用）
+  let _importing = false, _autoTimer = null;
   function gistHeaders() {
     const cfg = getCloud();
     const t = (cfg.token || '').trim();
@@ -483,17 +485,53 @@
     if (status === 404) return act + '失败：私密 Gist 返回 404，多半是 Token 无效/无 gist 权限，或 Gist ID 填错（点「测试连接」可一步定位）';
     return act + '失败（HTTP ' + status + (msg ? '：' + msg : '') + '）';
   }
-  // 上传：把当前完整快照写入 Gist（PATCH），并清理非标准残留文件
+  // 把云端数据合并进本地：云端独有 id 直接加入；已存在 id 合并复习记录（按日期去重），其余字段本地优先。
+  // 这样多设备/多标签页各自编辑后，先合并再上传，互不覆盖、不静默丢数据。
+  function mergeIntoLocal(content) {
+    let cloud;
+    try { cloud = JSON.parse(content); } catch (e) { return; }
+    if (!cloud || !Array.isArray(cloud.errors)) return;
+    const local = snapshot();
+    const map = new Map(local.errors.map(e => [e.id, e]));
+    cloud.errors.forEach(ce => {
+      if (!ce || !ce.id) return;
+      const le = map.get(ce.id);
+      if (!le) { map.set(ce.id, ce); return; }
+      // 已存在：合并云端有而本地没有的复习记录（按 date 去重），保证复习历史不丢
+      const dates = new Set((le.reviews || []).map(r => r.date));
+      (ce.reviews || []).forEach(r => { if (r && r.date && !dates.has(r.date)) { le.reviews.push(r); dates.add(r.date); } });
+      (le.reviews || []).sort((a, b) => new Date(a.date) - new Date(b.date));
+      // 其余字段本地优先（本地为空才用云端，避免覆盖刚刚的本地编辑）
+      ['text','answer','subject','mastery','kpId','srcId','mode','pinyin','createdAt'].forEach(k => {
+        if (le[k] === undefined || le[k] === null || le[k] === '') le[k] = ce[k];
+      });
+    });
+    local.errors = Array.from(map.values());
+    local.subjects = Array.from(new Set([...(local.subjects || []), ...(cloud.subjects || [])]));
+    const kwMap = new Map();
+    [...(local.keywords || []), ...(cloud.keywords || [])].forEach(k => kwMap.set(k.id || k.name, k));
+    local.keywords = Array.from(kwMap.values());
+    _importing = true;            // 合并期间抑制自动回传，避免无意义上传/递归
+    try { importData(local); }
+    finally { _importing = false; }
+  }
+  // 上传：把当前完整快照写入 Gist（PATCH），并清理非标准残留文件。
+  // 上传前复用「取文件列表」的 GET 拉取云端，把云端独有/更新的复习记录合并进本地，避免多设备后写覆盖静默丢数据。
   async function gistUpload() {
     const cfg = getCloud();
     if (!cfg.token || !cfg.gistId) throw new Error('请先在设置里填写并保存 Token 与 Gist ID');
     const gistId = normGistId(cfg.gistId);
     if (!gistId) throw new Error('请先在设置里填写并保存 Token 与 Gist ID');
-    // 先取现有文件名，把非 cuotiben.json 的杂散文件在 PATCH 时一并删除
+    // 拉取云端：① 取现有文件名（清理残留）② 合并云端到本地（本地优先，复习记录并集）
     let existing = [];
     try {
       const g0 = await fetch('https://api.github.com/gists/' + gistId, { headers: gistHeaders() });
-      if (g0.ok) { const j = await g0.json(); existing = Object.keys(j.files || {}); }
+      if (g0.ok) {
+        const j = await g0.json();
+        existing = Object.keys(j.files || {});
+        const f = j.files && j.files[GIST_FILE];
+        if (f && f.content) mergeIntoLocal(f.content);
+      }
     } catch (e) { /* 忽略，直接尝试上传 */ }
     const files = { [GIST_FILE]: { content: JSON.stringify(snapshot(), null, 2) } };
     existing.forEach(name => { if (name !== GIST_FILE) files[name] = null; }); // 删除残留文件
@@ -551,7 +589,7 @@
   }
 
   /* ---------- 自动同步（账户开启 autoSync 后，数据变更自动上传） ---------- */
-  let _autoTimer = null, _importing = false;
+  // _importing / _autoTimer 已在云端同步区顶部声明（见 GIST_FILE 之后）
   function scheduleAutoSync() {
     const a = getCurrentAccount();
     if (!a || !a.cloud || !a.cloud.autoSync) return;

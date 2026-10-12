@@ -297,6 +297,12 @@ body {
 .pick.bad.on { background: var(--bad); border-color: var(--bad); color: #fff; }
 .pick.skip { font-size: 14px; }
 .pick.skip.on { background: var(--ink-3); border-color: var(--ink-3); color: #fff; }
+.btn-show-ans {
+  display: inline-block; margin: 4px 0 2px; padding: 7px 14px; font-size: 13px; font-weight: 700;
+  color: var(--primary-deep); background: var(--surface-2); border: 1.5px solid var(--primary);
+  border-radius: 10px; cursor: pointer;
+}
+.btn-show-ans:active { transform: scale(.98); }
 
 /* ============ 我的 ============ */
 .menu { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow-soft); overflow: hidden; }
