@@ -168,7 +168,7 @@
                         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
                       </button>
                     </div>
-                    ${errorExpandHTML(e, true, false)}
+                    ${errorExpandHTML(e, true)}
                   </div>
                 </div>`).join('')}
             </div>`
@@ -189,7 +189,7 @@
                         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
                       </button>
                     </div>
-                    ${errorExpandHTML(e, true, false)}
+                    ${errorExpandHTML(e, true)}
                   </div>
                 </div>`).join('')}
             </div>
@@ -216,8 +216,8 @@
       $('#goRedoGrade')?.addEventListener('click', () => renderGrade(redoDue, renderHome, { redo: true }));
     }
   }
-  // 统一展开详情块：知识点 + 题目全文 + 正确答案(点击查看) + 收录时间 + 做题记录
-  function errorExpandHTML(e, showImg = true, showAns = true) {
+  // 统一展开详情块：题目全文 + 图片 + 收录时间 + 做题记录（答案不在卡片展示，仅批改页可见）
+  function errorExpandHTML(e, showImg = true) {
     const isP = isDictError(e);
     const qFull = isP ? (e.pinyin || e.text || '') : (e.text || '');
     const ok = e.reviews.filter(r => r.correct).length;
@@ -225,10 +225,6 @@
     return `
       ${qFull ? `<div class="exp-q">${qFull}</div>` : ''}
       ${showImg ? imgList(e).map(s => `<img class="exp-img zoomable" src="${s}" alt=""/>`).join('') : ''}
-      ${showAns ? `<div class="ans-wrap">
-        <button class="link-btn" type="button">显示正确答案</button>
-        <div class="exp-ans" hidden>${e.answer || '（未填写）'}</div>
-      </div>` : ''}
       <div class="exp-meta-row"><span>收录于 ${fmtDate(e.createdAt)}</span><span>做题 ${e.reviews.length} 次 · 正确 ${ok} 次 · 错误 ${bad} 次</span></div>`;
   }
 
@@ -259,7 +255,7 @@
         </div>
         ${q ? `<div class="item-q">${q}</div>` : ''}
         ${hasImg ? imgs.map(s => `<img class="item-img zoomable" src="${s}" alt=""/>`).join('') : ''}
-        ${expandable ? `<div class="item-exp" hidden>${errorExpandHTML(e, false, false)}</div>` : `
+        ${expandable ? `<div class="item-exp" hidden>${errorExpandHTML(e, false)}</div>` : `
         <div class="item-when">录入于 ${fmtDate(e.createdAt)}</div>`}
       </div>`;
   }
@@ -1205,7 +1201,7 @@
                     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
                   </button>
                 </div>
-                ${errorExpandHTML(e, true, false)}
+                ${errorExpandHTML(e, true)}
               </div>
             </div>`).join('')}
         </div>`}
