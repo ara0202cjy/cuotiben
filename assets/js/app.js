@@ -168,7 +168,7 @@
                         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
                       </button>
                     </div>
-                    ${errorExpandHTML(e)}
+                    ${errorExpandHTML(e, true, false)}
                   </div>
                 </div>`).join('')}
             </div>`
@@ -189,7 +189,7 @@
                         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
                       </button>
                     </div>
-                    ${errorExpandHTML(e)}
+                    ${errorExpandHTML(e, true, false)}
                   </div>
                 </div>`).join('')}
             </div>
@@ -198,14 +198,12 @@
       </div>`;
     $('#goReview')?.addEventListener('click', () => setView('review'));
     if (revCount) {
-      bindAnsToggle($('#homeRevList') || document);
       $$('#homeRevList .item-edit').forEach(b => b.addEventListener('click', ev => {
         ev.stopPropagation(); openDetail(b.dataset.edit);
       }));
     }
     // 错题重练板块交互：看答案 / 进详情 / 移出（不动题库） / 逐题批改
     if (redoDue.length) {
-      bindAnsToggle($('#homeRedoList') || document);
       $$('#homeRedoList .item-edit').forEach(b => b.addEventListener('click', ev => {
         ev.stopPropagation(); openDetail(b.dataset.edit);
       }));
@@ -219,7 +217,7 @@
     }
   }
   // 统一展开详情块：知识点 + 题目全文 + 正确答案(点击查看) + 收录时间 + 做题记录
-  function errorExpandHTML(e, showImg = true) {
+  function errorExpandHTML(e, showImg = true, showAns = true) {
     const isP = isDictError(e);
     const qFull = isP ? (e.pinyin || e.text || '') : (e.text || '');
     const ok = e.reviews.filter(r => r.correct).length;
@@ -227,12 +225,13 @@
     return `
       ${qFull ? `<div class="exp-q">${qFull}</div>` : ''}
       ${showImg ? imgList(e).map(s => `<img class="exp-img zoomable" src="${s}" alt=""/>`).join('') : ''}
-      <div class="ans-wrap">
+      ${showAns ? `<div class="ans-wrap">
         <button class="link-btn" type="button">显示正确答案</button>
         <div class="exp-ans" hidden>${e.answer || '（未填写）'}</div>
-      </div>
+      </div>` : ''}
       <div class="exp-meta-row"><span>收录于 ${fmtDate(e.createdAt)}</span><span>做题 ${e.reviews.length} 次 · 正确 ${ok} 次 · 错误 ${bad} 次</span></div>`;
   }
+
   // 绑定「显示正确答案」按钮（点击展开/收起答案，不触发外层折叠）
   function bindAnsToggle(scope) {
     scope.querySelectorAll('.ans-wrap .link-btn').forEach(btn => {
@@ -1227,7 +1226,7 @@
                     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
                   </button>
                 </div>
-                ${errorExpandHTML(e)}
+                ${errorExpandHTML(e, true, false)}
               </div>
             </div>`).join('')}
         </div>`}
@@ -1239,7 +1238,6 @@
         </div>
       </div>` : ''}
     `;
-    bindAnsToggle($('#revList') || document);
     $$('#revList .item-edit').forEach(b => b.addEventListener('click', ev => {
       ev.stopPropagation(); openDetail(b.dataset.edit);
     }));
