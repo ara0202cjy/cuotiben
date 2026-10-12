@@ -40,6 +40,9 @@
   // 练习队列（选题重练）已持久化到账户存储并随云端同步，统一经 DB 读写（不再仅存内存）
   const getPractice = () => DB.getPracticeSession() || [];
   const setPractice = arr => DB.setPracticeSession(arr);
+  // 错题重练清单（redo）：首页「错题重练」板块数据，常驻、批改后不清空（仅「移出」时移除）
+  const getRedo = () => DB.getRedoList() || [];
+  const setRedo = arr => DB.setRedoList(arr);
 
   /* ---------------- 通用 UI ---------------- */
   function toast(msg) {
@@ -132,9 +135,14 @@
   /* ---------------- 首页（紧凑：标题 + 三统计 + 今日需要复习） ---------------- */
   function renderHome() {
     const errs = DB.getErrors();
-    const due = DB.dueReviews();
+    const redoIds = getRedo();
+    // 重练题已在「错题重练」专区展示，从「需要复习」里排除，避免两处重复提示
+    const due = DB.dueReviews().filter(e => !redoIds.includes(e.id));
     const revCount = due.length;
     const known = errs.filter(e => DB.isMastered(e)).length;
+    // 错题重练板块：仅展示 redolist 中当前到期需练的题（未掌握 + 已到推送时间）
+    const redoDue = redoIds.map(id => DB.getError(id)).filter(Boolean)
+      .filter(e => !DB.isMastered(e) && DB.nextDueDate(e) <= Date.now());
 
     $('#view').innerHTML = `
       <div class="hero compact">
@@ -166,6 +174,27 @@
             </div>`
           : '<div class="empty" style="padding:6px 0">今天没有到期要复习的错题，做得真棒 🎉</div>'}
         <button class="btn small ghost" id="goReview" style="width:100%;margin-top:10px">去复习页逐题批改 ›</button>
+      </div>
+      <div class="card" style="margin-top:12px;padding:14px 16px">
+        <p class="card-h" style="margin-bottom:8px">错题重练 <span style="color:var(--ink-2);font-weight:400">（${redoDue.length} 道 · 手动加入集中练）</span></p>
+        ${redoDue.length
+          ? `<div id="homeRedoList">
+              ${redoDue.map(e => `
+                <div class="rev-item">
+                  <div class="rev-due">${dueLabel(e)}</div>
+                  <div class="rev-card">
+                    <div class="item-top">${metaTagsHTML(e)}
+                      <button class="redo-out" data-del-redo="${e.id}" title="移出重练（不删题库）" aria-label="移出重练">移出</button>
+                      <button class="item-edit" data-edit="${e.id}" title="编辑 / 删除" aria-label="编辑">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                      </button>
+                    </div>
+                    ${errorExpandHTML(e)}
+                  </div>
+                </div>`).join('')}
+            </div>
+            <button class="btn small ghost" id="goRedoGrade" style="width:100%;margin-top:10px">逐题批改并固定锚点 ›</button>`
+          : '<div class="empty" style="padding:6px 0">还没有重练题。去「笔记本」勾选错题点「加入重练」，即可在此集中练习：对的锚定今日按原节奏推送，错 / 不练次日再推，直到答对。</div>'}
       </div>`;
     $('#goReview')?.addEventListener('click', () => setView('review'));
     if (revCount) {
@@ -173,6 +202,20 @@
       $$('#homeRevList .item-edit').forEach(b => b.addEventListener('click', ev => {
         ev.stopPropagation(); openDetail(b.dataset.edit);
       }));
+    }
+    // 错题重练板块交互：看答案 / 进详情 / 移出（不动题库） / 逐题批改
+    if (redoDue.length) {
+      bindAnsToggle($('#homeRedoList') || document);
+      $$('#homeRedoList .item-edit').forEach(b => b.addEventListener('click', ev => {
+        ev.stopPropagation(); openDetail(b.dataset.edit);
+      }));
+      $$('#homeRedoList .redo-out').forEach(b => b.addEventListener('click', ev => {
+        ev.stopPropagation();
+        setRedo(getRedo().filter(id => id !== b.dataset.delRedo));
+        toast('已移出重练板块（题库与学习记录不变）');
+        renderHome();
+      }));
+      $('#goRedoGrade')?.addEventListener('click', () => renderGrade(redoDue, renderHome, { redo: true }));
     }
   }
   // 统一展开详情块：知识点 + 题目全文 + 正确答案(点击查看) + 收录时间 + 做题记录
@@ -559,7 +602,7 @@
       ${state.selectMode ? `
       <p class="nb-selcnt">已选 ${state.selected.size} 道</p>
       <div class="nb-tools nb-act">
-        <button class="btn" id="repSel">练习选中</button>
+        <button class="btn" id="repSel">加入重练</button>
         <button class="btn" id="expSel">导出PDF</button>
         <button class="btn ghost nb-danger" id="delSel">删除选中</button>
         <button class="btn ghost" id="selNone">清空选择</button>
@@ -614,13 +657,13 @@
     if (state.selectMode) {
       $('#repSel').addEventListener('click', () => {
         const ids = Array.from(state.selected);
-        if (!ids.length) { toast('请先勾选要练习的错题'); return; }
+        if (!ids.length) { toast('请先勾选要重练的错题'); return; }
         const errs = ids.map(id => DB.getError(id)).filter(Boolean);
-        if (!errs.length) { toast('没有可练习的错题'); return; }
-        // 选中题推送到复习页，与已到期复习题一起批改（练习队列持久化，关页/换设备不丢）
-        setPractice(ids);
-        setView('review');
-        toast(`已推送到复习页 ${ids.length} 道，可与其他待复习题一起批改`);
+        if (!errs.length) { toast('没有可重练的错题'); return; }
+        // 选中题加入首页「错题重练」板块（常驻重练清单，去重合并；不动题库，仅加入重练池）
+        setRedo(Array.from(new Set([...getRedo(), ...ids])));
+        setView('home');
+        toast(`已加入错题重练 ${ids.length} 道 · 在首页「错题重练」板块集中练习`);
       });
       $('#delSel').addEventListener('click', () => {
         const ids = Array.from(state.selected);
@@ -1236,11 +1279,11 @@
       img.src = url;
     });
   }
-  function renderGrade(list, back) {
+  function renderGrade(list, back, opts) {
     const due = (list && list.length) ? list : DB.dueReviews();
     const backFn = back || (() => renderReview());
     if (!due.length) { backFn(); toast('没有可重练的错题'); return; }
-    const gTitle = (back === renderList) ? '重练模式' : '批改模式';
+    const gTitle = (opts && opts.redo) ? '重练批改' : (back === renderList ? '重练模式' : '批改模式');
     $('#view').innerHTML = `
       <div class="grade-bar">
         <button class="btn ghost small" id="gradeBack">‹ 返回</button>
@@ -1278,7 +1321,7 @@
         DB.recordReview(e.id, v === 'ok');
         if (v === 'ok') ok++; else bad++;
       });
-      setPractice([]);   // 本次推送的练习题已随批改消费
+      if (!(opts && opts.redo)) setPractice([]);   // 非重练模式：练习队列随批改清空；重练模式保留 redolist，错的题次日仍留在板块
       backFn();
       toast(`已记录 ${ok + bad} 道（对 ${ok} / 错 ${bad}${skip ? ` · 未练习 ${skip}` : ''}${none ? ` · 跳过 ${none}` : ''}）· 复习锚点已更新`);
     });

@@ -466,6 +466,7 @@
       keywords: read(K('keywords'), []),
       errors: read(K('errors'), []),
       practiceSession: getPracticeSession(),
+      redoList: getRedoList(),
     };
   }
   function exportData() { return snapshot(); }
@@ -478,7 +479,7 @@
     autoSyncTick();
   }
   function clearAll() {
-    [K('subjects'), K('errors'), K('keywords'), K('practice')].forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
+    [K('subjects'), K('errors'), K('keywords'), K('practice'), K('redo')].forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
     getSubjects(); // 重建默认科目，保证应用仍可正常使用
   }
   // 练习队列（选题重练）：持久化到本账户存储，并随快照同步到云端（多设备可延续 / 远程管理）
@@ -486,6 +487,14 @@
   function setPracticeSession(arr) {
     write(K('practice'), Array.isArray(arr) ? arr : []);
     autoSyncTick();   // 同步到云端，使其他设备也能看到 / 继续该练习队列
+  }
+  // 错题重练清单（redo）：用户在笔记本勾选「加入重练」后进入首页「错题重练」板块，
+  // 与练习队列(practiceSession)不同——它是常驻清单：逐题批改后**不会清空**，错的题次日仍留在板块，
+  // 直到答对固定锚点后再按原复习逻辑推送；从板块「移出」仅移除清单引用，不动题库与复习记录。
+  function getRedoList() { return read(K('redo'), []); }
+  function setRedoList(arr) {
+    write(K('redo'), Array.isArray(arr) ? arr : []);
+    autoSyncTick();   // 同步到云端，多设备可延续同一份重练清单
   }
   // 未练习：顺延到明天再推送（不记录对错，仅延后下次到期时间）
   function snooze(id) {
@@ -547,6 +556,11 @@
     // 练习队列取并集（多设备各自添加的题都保留，避免一方覆盖另一方）
     const ps = new Set([...(local.practiceSession || []), ...(cloud.practiceSession || [])]);
     local.practiceSession = Array.from(ps);
+    // 错题重练清单同样取并集；合并结果写回存储（此前仅存内存未持久化，这里一并修正）
+    const rd = new Set([...(local.redoList || []), ...(cloud.redoList || [])]);
+    local.redoList = Array.from(rd);
+    write(K('practice'), local.practiceSession);
+    write(K('redo'), local.redoList);
     _importing = true;            // 合并期间抑制自动回传，避免无意义上传/递归
     try { importData(local); }
     finally { _importing = false; }
@@ -651,6 +665,7 @@
     getErrors, getError, addError, updateError, deleteError,
     dueDaysForReview, nextDueDate, isMastered, dueReviews, recordReview,
     isLeech, wrongCount, snooze, getPracticeSession, setPracticeSession,
+    getRedoList, setRedoList,
     toPinyin, seedIfEmpty, seedReviewDemo,
     exportData, importData, clearAll, snapshot,
     gistUpload, gistDownload, gistTest,
