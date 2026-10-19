@@ -490,36 +490,37 @@
   function normalizeRedoMap(x) {
     if (!x || typeof x !== 'object') return {};
     if (Array.isArray(x)) {            // 兼容旧版纯 id 数组
-      const m = {}; x.forEach(id => { if (id) m[id] = { ts: 0, deleted: false }; }); return m;
+      const m = {}; x.forEach(id => { if (id) m[id] = { ts: 0, seq: 0, deleted: false }; }); return m;
     }
     const m = {};
     Object.keys(x).forEach(id => {
       const v = x[id];
-      if (v && typeof v === 'object') m[id] = { ts: v.ts || 0, deleted: !!v.deleted };
-      else if (v) m[id] = { ts: 0, deleted: false };   // 兼容裸 id 值
+      if (v && typeof v === 'object') m[id] = { ts: v.ts || 0, seq: v.seq || 0, deleted: !!v.deleted };
+      else if (v) m[id] = { ts: 0, seq: 0, deleted: false };   // 兼容裸 id 值
     });
     return m;
   }
   function getRedoRaw() { return normalizeRedoMap(read(K('redo'), {})); }
-  // 返回当前「有效」重练题 id（未删除），按加入时间升序
+  // 返回当前「有效」重练题 id（未删除），按操作序号升序（序号 = 加入/移出顺序，不受设备时钟偏差影响）
   function getRedoList() {
     const raw = getRedoRaw();
     return Object.keys(raw).filter(id => raw[id] && !raw[id].deleted)
-      .sort((a, b) => (raw[a].ts || 0) - (raw[b].ts || 0));
+      .sort((a, b) => ((raw[a].seq || 0) - (raw[b].seq || 0)) || ((raw[a].ts || 0) - (raw[b].ts || 0)));
   }
-  // 加入重练：写入/刷新为「有效」状态（带当前时间戳）
+  // 加入重练：写入/刷新为「有效」状态（序号 +1，以便跨端按操作先后裁决，避免时钟偏差）
   function addToRedo(ids) {
     if (!Array.isArray(ids)) ids = ids ? [ids] : [];
     const raw = getRedoRaw(); const t = now();
-    ids.forEach(id => { if (id) raw[id] = { ts: t, deleted: false }; });
+    ids.forEach(id => { if (id) { const p = raw[id] || {}; raw[id] = { ts: t, seq: (p.seq || 0) + 1, deleted: false }; } });
     write(K('redo'), raw);
     autoSyncTick();   // 同步到云端，多设备可延续同一份重练清单
   }
-  // 移出重练：写入「墓碑」(deleted:true)，保留时间戳以便跨端合并时取胜
+  // 移出重练：写入「墓碑」(deleted:true)，序号 +1 使其后于任何旧的「未删除」记录，跨端合并必获胜
   function removeFromRedo(id) {
     if (!id) return;
     const raw = getRedoRaw();
-    raw[id] = { ts: now(), deleted: true };
+    const p = raw[id] || {};
+    raw[id] = { ts: now(), seq: (p.seq || 0) + 1, deleted: true };
     write(K('redo'), raw);
     autoSyncTick();
   }
@@ -583,12 +584,13 @@
     // 练习队列取并集（多设备各自添加的题都保留，避免一方覆盖另一方）
     const ps = new Set([...(local.practiceSession || []), ...(cloud.practiceSession || [])]);
     local.practiceSession = Array.from(ps);
-    // 错题重练清单：按 id 合并，每条取时间戳最新者（墓碑 deleted:true 即视为移除，多端均生效）
+    // 错题重练清单：按 id 合并，每条取操作序号更大者（seq 单调递增、与设备时钟无关，
+    // 故「后发生的加入/移出」必获胜，避免两端系统时间不一致导致旧记录反被采纳）
     const lRedo = normalizeRedoMap(local.redoList), cRedo = normalizeRedoMap(cloud.redoList);
     const mRedo = {};
     new Set([...Object.keys(lRedo), ...Object.keys(cRedo)]).forEach(id => {
       const L = lRedo[id], C = cRedo[id];
-      mRedo[id] = (L && C) ? (L.ts >= C.ts ? L : C) : (L || C);
+      mRedo[id] = (L && C) ? ((L.seq || 0) >= (C.seq || 0) ? L : C) : (L || C);
     });
     local.redoList = mRedo;
     write(K('practice'), local.practiceSession);
