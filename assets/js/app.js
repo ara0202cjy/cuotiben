@@ -343,7 +343,7 @@
       }
     }
     setView(state.view); updateRevBadge(); notifyDueReviews();
-    DB.pruneUnusedKeywords();   // 云端同步后清理无引用的知识点/来源
+    // 注意：不再自动清理「无引用」的知识点 —— 新建但尚未挂错题的知识点会被误删。
   }
 
   // 登录后一次性云端配置引导（lvcheng 仅填 Token；其余账号填 Token + Gist ID）。不在设置内，杜绝误改。
@@ -1474,11 +1474,31 @@
     const subjects = DB.getSubjects();
     let sel = subjects[0];
     let selRType = 'stable';   // 新增知识点时一并选题型（稳定型 / 记忆型）
+    let editingId = null;      // 正在行内编辑的知识点 id
+    let editRType = 'stable';  // 编辑态中临时选中的题型
     function listHTML() {
       const list = DB.getKeywords(type).filter(k => k.subject === sel);
       const errsAll = DB.getErrors();
       return list.length ? list.map(k => {
         const cnt = errsAll.filter(e => e.kpId === k.id || e.srcId === k.id).length;
+        // 编辑态：名称输入框 + 题型选择（仅知识点有题型），可保存 / 取消
+        if (k.id === editingId) {
+          const seg = (type === 'kp')
+            ? `<div class="seg" style="margin:10px 0 0">
+                 <span class="seg-lab">题型</span>
+                 <button type="button" class="chip ${editRType === 'stable' ? 'active' : ''}" data-edit-rt="stable">稳定型</button>
+                 <button type="button" class="chip ${editRType === 'drill' ? 'active' : ''}" data-edit-rt="drill">记忆型</button>
+               </div>` : '';
+          return `
+          <div class="item kw-edit" style="cursor:default">
+            <input class="input" id="kwEditName" value="${esc(k.name)}" placeholder="名称" />
+            ${seg}
+            <div style="display:flex;gap:10px;margin-top:10px;justify-content:flex-end">
+              <button class="btn small ghost" data-edit-cancel="${k.id}">取消</button>
+              <button class="btn small" data-edit-save="${k.id}">保存</button>
+            </div>
+          </div>`;
+        }
         const rTag = (type === 'kp')
           ? `<button class="opt rt ${k.rType === 'drill' ? 'on' : ''}" data-rt-toggle="${k.id}">${k.rType === 'drill' ? '记忆型' : '稳定型'}</button>`
           : '';
@@ -1486,7 +1506,7 @@
         <div class="item" style="display:flex;align-items:center;gap:10px;cursor:default">
           <div style="flex:1">${esc(k.name)}${cnt ? `<span class="kw-cnt">${cnt} 道</span>` : ''}</div>
           ${rTag}
-          <button class="opt" data-edit="${k.id}">改</button>
+          <button class="opt" data-edit="${k.id}">编辑</button>
           <button class="opt" data-del="${k.id}" style="color:var(--bad)">删</button>
         </div>`;
       }).join('') : '<div class="empty">该科目下暂无，点击下方新增</div>';
@@ -1518,10 +1538,40 @@
         const k = DB.getKeywords('kp').find(x => x.id === b.dataset.rtToggle);
         if (k) { DB.setKeywordRType(k.id, k.rType === 'drill' ? 'stable' : 'drill'); rebind(); }
       }));
+      // 进入行内编辑（名称 + 题型一起改）
       body.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => {
         const k = DB.getKeywords(type).find(x => x.id === b.dataset.edit);
-        const n = prompt('修改为：', k.name); if (n && n.trim()) { DB.updateKeyword(k.id, n); rebind(); }
+        if (!k) return;
+        editingId = k.id; editRType = k.rType || 'stable';
+        rebind();
+        const inp = body.querySelector('#kwEditName');
+        if (inp) { inp.focus(); inp.select(); }
       }));
+      // 编辑态内切换题型：只切高亮，不重绘，避免输入框里已改的名称丢失
+      body.querySelectorAll('[data-edit-rt]').forEach(c => c.addEventListener('click', () => {
+        editRType = c.dataset.editRt;
+        body.querySelectorAll('[data-edit-rt]').forEach(x => x.classList.toggle('active', x === c));
+      }));
+      // 取消编辑
+      body.querySelectorAll('[data-edit-cancel]').forEach(b => b.addEventListener('click', () => {
+        editingId = null; rebind();
+      }));
+      // 保存：名称与题型一并写入（改名 / 改题型都会推进版本号，跨端按新版本生效）
+      body.querySelectorAll('[data-edit-save]').forEach(b => b.addEventListener('click', () => {
+        const id = b.dataset.editSave;
+        const inp = body.querySelector('#kwEditName');
+        const name = ((inp && inp.value) || '').trim();
+        if (!name) { toast('名称不能为空'); if (inp) inp.focus(); return; }
+        DB.updateKeyword(id, name);
+        if (type === 'kp') DB.setKeywordRType(id, editRType);
+        editingId = null; rebind(); toast('已保存 ✓');
+      }));
+      // 编辑框内回车保存、Esc 取消
+      const editInput = body.querySelector('#kwEditName');
+      if (editInput) editInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); const s = body.querySelector('[data-edit-save]'); if (s) s.click(); }
+        if (e.key === 'Escape') { editingId = null; rebind(); }
+      });
       body.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => {
         const used = DB.getErrors().filter(e => e.kpId === b.dataset.del || e.srcId === b.dataset.del).length;
         if (used > 0) { toast('该' + (type === 'kp' ? '知识点' : '来源') + '下还有 ' + used + ' 道错题，暂不可删除（请先处理相关错题）'); return; }
@@ -1785,6 +1835,5 @@
   DB.migrateLegacy();
   DB.seedAccounts();
   initPullToSync();
-  DB.pruneUnusedKeywords();   // 启动时清理无引用的知识点/来源
   if (DB.getCurrentName()) afterLogin(); else openLoginModal();
 })();

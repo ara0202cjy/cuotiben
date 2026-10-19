@@ -353,6 +353,9 @@ body {
 .ds .lab { font-size: 11px; color: var(--ink-2); margin-top: 2px; }
 .ms-wrong .ms-mrow > span { width: 48px; }
 .kw-cnt { font-size: 11px; color: var(--ink-3); margin-left: 6px; }
+/* 知识点行内编辑态：不显示成可点条目，避免误触缩放 */
+.item.kw-edit { cursor: default; }
+.item.kw-edit:active { transform: none; }
 
 /* ============ 弹层 sheet ============ */
 .sheet-mask {

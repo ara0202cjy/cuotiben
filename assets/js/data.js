@@ -103,9 +103,15 @@
   function deleteSubject(name) {
     const s = getSubjects().filter(x => x !== name);
     write(K('subjects'), s);
-    // 同步清理该科的关键词与错题引用
+    // 同步清理该科的关键词与错题引用（删除的知识点写墓碑，防止云端旧副本并回来）
     let list = read(K('keywords'), []);
-    const removed = list.filter(k => k.subject === name).map(k => k.id);
+    const dead = list.filter(k => k.subject === name);
+    const removed = dead.map(k => k.id);
+    if (dead.length) {
+      const del = getKwDelRaw();
+      dead.forEach(k => { del[k.id] = { rev: (k.rev || 0) + 1 }; });
+      write(K('kwdel'), del);
+    }
     list = list.filter(k => k.subject !== name);
     write(K('keywords'), list);
     const errs = read(K('errors'), []);
@@ -123,7 +129,7 @@
     if (idx === -1) return false;
     s[idx] = newName; write(K('subjects'), s);
     const list = read(K('keywords'), []);
-    list.forEach(k => { if (k.subject === oldName) k.subject = newName; });
+    list.forEach(k => { if (k.subject === oldName) { k.subject = newName; touchKw(k); } });
     write(K('keywords'), list);
     const errs = read(K('errors'), []);
     errs.forEach(e => { if (e.subject === oldName) e.subject = newName; });
@@ -162,9 +168,15 @@
     const list = read(K('keywords'), []);
     return type ? list.filter(k => k.type === type) : list;
   }
+  // 知识点的跨端合并依据：rev 为「本地修改次数」的单调递增计数（新增/改名/改题型/删除 均 +1），
+  // 与设备时钟无关；updatedAt 仅在 rev 相同时作为次级比较（两端各自独立修改的兜底）。
+  function touchKw(k) {
+    k.rev = (k.rev || 0) + 1;
+    k.updatedAt = now();
+  }
   function addKeyword(type, name, subject, rType) {
     const list = read(K('keywords'), []);
-    const kw = { id: uid(), type, name: name.trim(), subject: subject || null };
+    const kw = { id: uid(), type, name: name.trim(), subject: subject || null, rev: 1, updatedAt: now() };
     if (type === 'kp') kw.rType = rType || 'stable';   // 题型仅知识点需要，默认稳定型
     list.push(kw); write(K('keywords'), list); autoSyncTick(); return kw;
   }
@@ -172,16 +184,30 @@
   function setKeywordRType(id, rType) {
     const list = read(K('keywords'), []);
     const k = list.find(x => x.id === id);
-    if (k && k.type === 'kp') { k.rType = rType; write(K('keywords'), list); autoSyncTick(); }
+    if (k && k.type === 'kp') { k.rType = rType; touchKw(k); write(K('keywords'), list); autoSyncTick(); }
     return k;
   }
   function updateKeyword(id, name) {
     const list = read(K('keywords'), []);
-    const k = list.find(x => x.id === id); if (k) k.name = name.trim();
+    const k = list.find(x => x.id === id);
+    if (k) { k.name = name.trim(); touchKw(k); }
     write(K('keywords'), list); autoSyncTick(); return k;
+  }
+  // 删除墓碑：{ [id]: { rev } }。删除视为一次版本 +1，跨端合并时与知识点的 rev 比大小，
+  // 墓碑版本更高 → 该知识点不进本地，从而「删除」也能同步到其他设备（否则云端旧副本会把删掉的又并回来）。
+  function getKwDelRaw() {
+    const x = read(K('kwdel'), {});
+    if (!x || typeof x !== 'object' || Array.isArray(x)) return {};
+    const m = {};
+    Object.keys(x).forEach(id => { const v = x[id]; m[id] = { rev: (v && v.rev) || 0 }; });
+    return m;
   }
   function deleteKeyword(id) {
     let list = read(K('keywords'), []);
+    const k = list.find(x => x.id === id);
+    const del = getKwDelRaw();
+    del[id] = { rev: ((k && k.rev) || 0) + 1 };   // 删除 = 版本号再 +1
+    write(K('kwdel'), del);
     list = list.filter(x => x.id !== id);
     write(K('keywords'), list);
     // 同时清理错题中对该关键词的引用
@@ -193,14 +219,21 @@
     write(K('errors'), errs);
     autoSyncTick();
   }
-  // 自动清理：删除「没有任何错题引用」的知识点 / 来源，保持目录干净
+  // 清理「没有任何错题引用」的知识点 / 来源。
+  // 注意：知识点现在由用户在「知识点管理」里显式维护（含题型），新建后可能暂时不挂任何错题，
+  // 因此**不再自动调用**（否则刚建好的知识点会在下次启动/同步时被当成垃圾删掉）。
+  // 保留该函数仅供显式手动整理；删除时写墓碑，避免被云端旧副本并回来。
   function pruneUnusedKeywords() {
     const used = new Set();
     read(K('errors'), []).forEach(e => { if (e.kpId) used.add(e.kpId); if (e.srcId) used.add(e.srcId); });
-    let list = read(K('keywords'), []);
-    const before = list.length;
-    list = list.filter(k => used.has(k.id));
-    if (list.length !== before) { write(K('keywords'), list); autoSyncTick(); }
+    const list = read(K('keywords'), []);
+    const dead = list.filter(k => !used.has(k.id));
+    if (!dead.length) return;
+    const del = getKwDelRaw();
+    dead.forEach(k => { del[k.id] = { rev: (k.rev || 0) + 1 }; });
+    write(K('kwdel'), del);
+    write(K('keywords'), list.filter(k => used.has(k.id)));
+    autoSyncTick();
   }
 
   /* ---------- 错题 ---------- */
@@ -252,8 +285,6 @@
     const e = list.find(x => x.id === id);
     if (e) Object.assign(e, patch);
     write(K('errors'), list);
-    // 改派知识点/来源后，旧项可能不再被引用 → 顺手清理
-    if (patch && (patch.kpId !== undefined || patch.srcId !== undefined)) pruneUnusedKeywords();
     autoSyncTick(); return e;
   }
 
@@ -261,7 +292,6 @@
     let list = read(K('errors'), []);
     list = list.filter(x => x.id !== id);
     write(K('errors'), list);
-    pruneUnusedKeywords();   // 删题后清理无引用的知识点/来源
     autoSyncTick();
   }
 
@@ -458,6 +488,7 @@
       account: getCurrentName(),
       subjects: getSubjects(),
       keywords: read(K('keywords'), []),
+      kwDel: getKwDelRaw(),          // 知识点删除墓碑（跨端传播删除）
       errors: read(K('errors'), []),
       practiceSession: getPracticeSession(),
       redoList: getRedoRaw(),
@@ -469,11 +500,12 @@
     if (!Array.isArray(data.errors) || !Array.isArray(data.keywords)) throw new Error('缺少错题或关键词数据');
     write(K('subjects'), (Array.isArray(data.subjects) && data.subjects.length) ? data.subjects : DEFAULT_SUBJECTS.slice());
     write(K('keywords'), data.keywords);
+    write(K('kwdel'), (data.kwDel && typeof data.kwDel === 'object') ? data.kwDel : {});
     write(K('errors'), data.errors);
     autoSyncTick();
   }
   function clearAll() {
-    [K('subjects'), K('errors'), K('keywords'), K('practice'), K('redo')].forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
+    [K('subjects'), K('errors'), K('keywords'), K('kwdel'), K('practice'), K('redo')].forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
     getSubjects(); // 重建默认科目，保证应用仍可正常使用
   }
   // 练习队列（选题重练）：持久化到本账户存储，并随快照同步到云端（多设备可延续 / 远程管理）
@@ -578,9 +610,33 @@
     });
     local.errors = Array.from(map.values());
     local.subjects = Array.from(new Set([...(local.subjects || []), ...(cloud.subjects || [])]));
+    // 知识点：按 id 合并，取「版本号(rev)」更大者。rev 是本地修改次数（新增/改名/改题型/删除均 +1），
+    // 与设备时钟无关；rev 相同再比 updatedAt，仍相同则保留本地。
+    // 旧逻辑是 [...local, ...cloud] 直接 Map.set，导致云端永远覆盖本地 —— 手机上的改名/改题型会被打回。
     const kwMap = new Map();
-    [...(local.keywords || []), ...(cloud.keywords || [])].forEach(k => kwMap.set(k.id || k.name, k));
+    const pickKw = (k) => {
+      if (!k || !k.id) return;
+      const cur = kwMap.get(k.id);
+      if (!cur) { kwMap.set(k.id, Object.assign({}, k)); return; }
+      const kr = k.rev || 0, cr = cur.rev || 0;
+      if (kr > cr) kwMap.set(k.id, Object.assign({}, k));
+      else if (kr === cr && (k.updatedAt || '') > (cur.updatedAt || '')) kwMap.set(k.id, Object.assign({}, k));
+    };
+    (local.keywords || []).forEach(pickKw);    // 先放本地：完全同版本时本地优先
+    (cloud.keywords || []).forEach(pickKw);
+    // 删除墓碑合并：同一 id 取更大的 rev；墓碑 rev 高于知识点 rev → 该知识点视为已删除
+    const lDel = local.kwDel || {}, cDel = (cloud.kwDel && typeof cloud.kwDel === 'object') ? cloud.kwDel : {};
+    const delMap = {};
+    new Set([...Object.keys(lDel), ...Object.keys(cDel)]).forEach(id => {
+      const lr = (lDel[id] && lDel[id].rev) || 0, cr = (cDel[id] && cDel[id].rev) || 0;
+      delMap[id] = { rev: Math.max(lr, cr) };
+    });
+    Array.from(kwMap.keys()).forEach(id => {
+      const d = delMap[id], k = kwMap.get(id);
+      if (d && d.rev > ((k && k.rev) || 0)) kwMap.delete(id);
+    });
     local.keywords = Array.from(kwMap.values());
+    local.kwDel = delMap;
     // 练习队列取并集（多设备各自添加的题都保留，避免一方覆盖另一方）
     const ps = new Set([...(local.practiceSession || []), ...(cloud.practiceSession || [])]);
     local.practiceSession = Array.from(ps);
@@ -645,7 +701,9 @@
     const f = g.files && g.files[GIST_FILE];
     if (!f || !f.content) throw new Error('Gist 中没有找到 ' + GIST_FILE);
     _importing = true;            // 拉取期间不触发自动回传，避免无意义上传
-    try { importData(JSON.parse(f.content)); }
+    // 合并而非整包覆盖：本地较新的修改（如刚改的知识点名称/题型）不会被云端旧副本冲掉，
+    // 云端独有的内容仍会补进来（等价于双向补齐）。
+    try { mergeIntoLocal(f.content); }
     finally { _importing = false; }
     setCloud({ lastSync: now(), lastResult: 'down' });
     return g;
