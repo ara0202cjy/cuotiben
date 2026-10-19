@@ -162,10 +162,18 @@
     const list = read(K('keywords'), []);
     return type ? list.filter(k => k.type === type) : list;
   }
-  function addKeyword(type, name, subject) {
+  function addKeyword(type, name, subject, rType) {
     const list = read(K('keywords'), []);
     const kw = { id: uid(), type, name: name.trim(), subject: subject || null };
+    if (type === 'kp') kw.rType = rType || 'stable';   // 题型仅知识点需要，默认稳定型
     list.push(kw); write(K('keywords'), list); autoSyncTick(); return kw;
+  }
+  // 修改知识点的题型（稳定型 / 记忆型）；仅对 kp 生效
+  function setKeywordRType(id, rType) {
+    const list = read(K('keywords'), []);
+    const k = list.find(x => x.id === id);
+    if (k && k.type === 'kp') { k.rType = rType; write(K('keywords'), list); autoSyncTick(); }
+    return k;
   }
   function updateKeyword(id, name) {
     const list = read(K('keywords'), []);
@@ -257,67 +265,54 @@
     autoSyncTick();
   }
 
-  /* ---------- 复习计划（间隔推送 + 掌握判定） ---------- */
-  // 错答累计次数（用于「易错」标注）
-  function wrongCount(e) { return (e.reviews || []).filter(r => r.correct === false).length; }
-  // 错题次数 ≥ 2 → 标为易错（leech）：需更密集复习、连续 4 次全对才算已掌握
-  function isLeech(e) { return wrongCount(e) >= 2; }
-  // 第 n 次复习的间隔天数（基于错题创建时间）：
-  //   未掌握（unknown）：+1、+10、+30、+60、+90 …（之后每 30 天）
-  //   部分掌握（fuzzy）：+30、+60、+90 …（之后每 30 天）
-  //   易错（leech）：+1、+2、+4、+11、+18 …（更密集，增加练习次数）
-  function dueDaysForReview(n, mastery, leech) {
-    if (mastery === 'fuzzy') return 30 * (n + 1);   // 部分掌握：30, 60, 90, 120 ...
-    if (leech) {                                     // 易错：更密集的复习节奏
-      if (n === 0) return 1;
-      if (n === 1) return 2;
-      if (n === 2) return 4;
-      return 7 * (n - 2) + 4;
+  /* ---------- 复习计划（周期推送 + 掌握判定，方案：两类题型） ---------- */
+  // 两类题型的推送周期（间隔单位：天）。走完整个周期且全对 → 标记已掌握，停止推送。
+  //   记忆型 drill：+5 / +10 / +20 / +40 / +80 / +160（共 6 次，最长 160 封顶）
+  //   稳定型 stable：+5 / +60 / +150（共 3 次）
+  const DRILL_IV = [5, 10, 20, 40, 80, 160];
+  const STABLE_IV = [5, 60, 150];
+  // 题型挂在「知识点」上：知识点设 rType，错题通过 kpId 继承；无知识点默认稳定型。
+  function getRType(e) {
+    if (e && e.kpId) {
+      const k = getKeywords('kp').find(x => x.id === e.kpId);
+      if (k && k.rType) return k.rType;
     }
-    if (n === 0) return 1;                          // 未掌握：首次 +1 天（次日，趁热打铁）
-    if (n === 1) return 10;                         // 未掌握：10
-    return 30 * (n - 1);                            // 未掌握：30, 60, 90 ...
+    return 'stable';
   }
-  // 复习锚点 = 最近一次复习的日期；若从未复习则取创建时间。
-  // 这样「随时重练」批改后，锚点刷新为该次重练时间，后续推送据此重新计算（直至全部掌握）。
-  function lastReviewDate(e) {
-    const rv = e.reviews || [];
-    return rv.length ? new Date(rv[rv.length - 1].date).getTime() : new Date(e.createdAt).getTime();
+  function intervalsFor(e) { return getRType(e) === 'drill' ? DRILL_IV : STABLE_IV; }
+  // 累计间隔：C[k] = 第 k 次复习应距锚点的天数（k 从 0 起）
+  function cum(iv) { const c = [iv[0]]; for (let i = 1; i < iv.length; i++) c.push(c[i - 1] + iv[i]); return c; }
+  // 排期推导（纯函数，由 reviews 实时算出，避免多端同步漂移）：
+  //   anchor = 创建日；其间若有一次判错，anchor 重置为该错日、步数归零（周期从头开始）。
+  //   pos = 自上次判错以来连续「对」的次数；下次推送 = anchor + 累计间隔[pos]。
+  //   提前重练 = 在更早的日期记录一次练习（correct），但 anchor 不变 → 其余节点推送日期保持不变。
+  function schedule(e) {
+    const iv = intervalsFor(e);
+    const C = cum(iv);
+    let anchor = new Date(e.createdAt).getTime();
+    let pos = 0;
+    (e.reviews || []).forEach(r => {
+      const bad = r.correct === false || r.result === 'bad';
+      if (bad) { anchor = new Date(r.date).getTime(); pos = 0; }
+      else pos++;
+    });
+    const mastered = pos >= iv.length;
+    const nextDue = mastered ? Infinity : anchor + C[pos] * DAY;
+    return { iv, C, anchor, pos, mastered, nextDue };
   }
-  // 下一次应复习时间 = 锚点 + 间隔
-  //   - 最近一次复习判「错」：间隔 1 天（当天错，次日继续推送，直到答对）
-  //   - 其余：按已复习次数 n 取间隔（未掌握 +1/+10/+30…，部分掌握 +30…+，易错更密）
-  //   - 未练习顺延：若设置过 snoozedUntil，下次到期不早于该时间戳
+  // 下一次应复习时间；已掌握或周期已完成返回 Infinity（不再推送）。未练习顺延：不早于 snoozedUntil。
   function nextDueDate(e) {
-    const rv = e.reviews || [];
-    const anchor = lastReviewDate(e);
-    const last = rv.length ? rv[rv.length - 1] : null;
-    const gap = (last && last.correct === false) ? 1 : dueDaysForReview(rv.length, e.mastery, isLeech(e));
-    const due = anchor + gap * DAY;
+    if (e.mastery === 'known') return Infinity;
+    const s = schedule(e);
+    if (s.mastered) return Infinity;
+    const due = s.nextDue;
     const snooze = e.snoozedUntil || 0;             // 未练习顺延：下次到期不早于该时间戳
     return Math.max(due, snooze);
   }
-  // 从 startIdx 起往回数，末尾「连续答对」的次数
-  function tailCorrect(reviews, startIdx) {
-    let c = 0;
-    for (let i = reviews.length - 1; i >= startIdx; i--) {
-      const r = reviews[i];
-      const ok = r.correct !== undefined ? r.correct : (r.result === 'ok');
-      if (ok) c++; else break;
-    }
-    return c;
-  }
-  // 是否已掌握（达成后即停止推送）：
-  //   未掌握：连续答对 2 次
-  //   部分掌握：连续答对 2 次
-  //   易错（错≥2）：连续答对 4 次才算已掌握（更高练习次数门槛）
-  //   手动标记 known：直接算已掌握
+  // 是否已掌握：手动标 known 直接算；否则看是否走完整个周期且全对。
   function isMastered(e) {
     if (e.mastery === 'known') return true;
-    const rv = e.reviews || [];
-    const need = isLeech(e) ? 4 : 2;                // 易错题需连续 4 次全对才算已掌握
-    if (e.mastery === 'fuzzy') return tailCorrect(rv, 0) >= need;
-    return tailCorrect(rv, 1) >= need;              // 未掌握：跳过首次那次
+    return schedule(e).mastered;
   }
   // 待复习列表（未掌握且已到推送时间），按到期先后排序
   function dueReviews() {
@@ -326,14 +321,13 @@
     const due = list.filter(e => !isMastered(e) && nextDueDate(e) <= nowT);
     return due.sort((a, b) => nextDueDate(a) - nextDueDate(b));
   }
-  // 记录一次复习结果（correct: true/false）；达成条件后自动归类「已掌握」
+  // 记录一次复习结果（correct: true/false）；走完整个周期全对后自动归类「已掌握」
   function recordReview(id, correct) {
     const e = getError(id);
     if (!e) return;
     e.reviews = e.reviews || [];
     e.reviews.push({ date: now(), correct: !!correct });
-    if (wrongCount(e) >= 2) e.leech = true;          // 累计错 ≥2 → 标易错（红标，提醒换方法）
-    // 已掌握题重练：无论对错都不自动推送（保持 known）；其余题按连续正确次数判定是否归为已掌握
+    // 已掌握题重练：无论对错都不自动推送（保持 known）；其余题按周期判定是否归为已掌握
     if (e.mastery !== 'known' && isMastered(e)) e.mastery = 'known';
     updateError(id, e);
     autoSyncTick();
@@ -701,8 +695,8 @@
     getSubjects, addSubject, deleteSubject, renameSubject, MASTERY, isChineseDictKp,
     getKeywords, addKeyword, updateKeyword, deleteKeyword, pruneUnusedKeywords,
     getErrors, getError, addError, updateError, deleteError,
-    dueDaysForReview, nextDueDate, isMastered, dueReviews, recordReview,
-    isLeech, wrongCount, snooze, getPracticeSession, setPracticeSession,
+    nextDueDate, isMastered, dueReviews, recordReview, getRType, setKeywordRType,
+    snooze, getPracticeSession, setPracticeSession,
     getRedoList, addToRedo, removeFromRedo,
     toPinyin, seedIfEmpty, seedReviewDemo,
     exportData, importData, clearAll, snapshot,

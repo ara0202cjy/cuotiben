@@ -80,13 +80,13 @@
     return DB.isMastered(e) ? masteryTag('known') : masteryTag(e.mastery || 'unknown');
   }
   function kwName(id) { const k = DB.getKeywords().find(x => x.id === id); return k ? k.name : ''; }
-  // 卡片顶部统一标签（高频词方式）：科目 → 知识点 → 来源 → 掌握情况 → 易错
+  // 卡片顶部统一标签：科目 → 知识点 → 来源 → 题型 → 掌握情况
   function metaTagsHTML(e) {
     return subjTag(e.subject)
       + (e.kpId ? `<span class="tag">${esc(kwName(e.kpId))}</span>` : '')
       + (e.srcId ? `<span class="tag">${esc(kwName(e.srcId))}</span>` : '')
-      + masteryDisplay(e)
-      + (DB.isLeech(e) ? '<span class="tag leech">易错</span>' : '');
+      + (e.kpId ? (DB.getRType(e) === 'drill' ? '<span class="tag drill">记忆型</span>' : '<span class="tag stable">稳定型</span>') : '')
+      + masteryDisplay(e);
   }
   function fmtDate(iso) {
     const d = new Date(iso); const p = n => (n < 10 ? '0' : '') + n;
@@ -194,8 +194,8 @@
                   </div>
                 </div>`).join('')}
             </div>
-            <button class="btn small ghost" id="goRedoGrade" style="width:100%;margin-top:10px">逐题批改并固定锚点 ›</button>`
-          : '<div class="empty" style="padding:6px 0">还没有重练题。去「笔记本」勾选错题点「加入重练」，即可在此集中练习：对的锚定今日按原节奏推送，错 / 不练次日再推，直到答对。</div>'}
+            <button class="btn small ghost" id="goRedoGrade" style="width:100%;margin-top:10px">逐题批改 ›</button>`
+          : '<div class="empty" style="padding:6px 0">还没有重练题。去「笔记本」勾选错题点「加入重练」，即可在此集中练习：对的按周期进入下一轮，错的次日再推，直到走完一个完整周期全对。</div>'}
       </div>`;
     $('#goReview')?.addEventListener('click', () => setView('review'));
     if (revCount) {
@@ -1164,11 +1164,17 @@
       <div class="btn-row" style="margin-top:16px">
         <button class="btn ghost" id="delErr">删除</button>
         <button class="btn" id="editErr">编辑</button>
+        <button class="btn" id="redoEarly">提前重练</button>
       </div>`);
     $('#delErr').addEventListener('click', () => {
       if (confirm('确定删除这道错题？')) { DB.deleteError(id); closeSheet(); toast('已删除'); setView(state.view); }
     });
     $('#editErr').addEventListener('click', () => { closeSheet(); openEntry(e); });
+    // 提前重练：在更早的日期做一次练习，仅把这次推送提前，其余节点推送日期不变（排期锚点不变）
+    $('#redoEarly')?.addEventListener('click', () => {
+      closeSheet();
+      renderGrade([e], () => openDetail(id), {});
+    });
   }
   // 待复习推送标签：应复习日期 / 逾期天数
   function dueLabel(e) {
@@ -1196,7 +1202,7 @@
     $('#view').innerHTML = `
       <div class="card" style="padding:14px 16px">
         <p class="card-h" style="margin-bottom:6px">复习推送计划</p>
-        <p style="font-size:12.5px;color:var(--ink-2);margin:0;line-height:1.6"><b>未掌握</b>：新题次日即推，按 +1 / +10 / +30 / +60 …天推送，连续答对 2 次即归为已掌握；<b>部分掌握</b>：按 +30 / +60 / +90 …天推送，连续答对 2 次即归为已掌握；<b>易错题</b>（错≥2 次，红标）：节奏更密、需连续 4 次全对才算已掌握。已掌握不再自动推送，可在错题本勾选重练。</p>
+        <p style="font-size:12.5px;color:var(--ink-2);margin:0;line-height:1.6"><b>记忆型</b>（如字词、单词）：按 +5 / +10 / +20 / +40 / +80 / +160 天推送，共 6 次全对即掌握；<b>稳定型</b>（如概念、公式）：按 +5 / +60 / +150 天推送，共 3 次全对即掌握。中途答错则周期从头开始（+5 天重试），直到走完一个完整周期且全对。已掌握不再自动推送，可在详情页点「提前重练」提前练习。</p>
       </div>
       ${due.length === 0
         ? '<div class="empty"><span class="em-ico">🌱</span>今天没有需要复习的错题，继续保持！</div>'
@@ -1308,14 +1314,14 @@
         if (v === 'skip') { skip++; DB.snooze(e.id); return; }   // 未练习：不记录对错，顺延到明天再推
         DB.recordReview(e.id, v === 'ok');
         if (opts && opts.redo && v === 'ok') {
-          // 答对即固定锚点：离开重练板块，回归正常复习推送流（不删题库、不丢学习记录）
+          // 答对即移出重练板块，回归正常周期推送流（不删题库、不丢学习记录；其余节点推送日期不变）
           delRedo(e.id);
         }
         if (v === 'ok') ok++; else bad++;
       });
       if (!(opts && opts.redo)) setPractice([]);   // 非重练模式：练习队列随批改清空；重练模式保留 redolist，错的题次日仍留在板块
       backFn();
-      toast(`已记录 ${ok + bad} 道（对 ${ok} / 错 ${bad}${skip ? ` · 未练习 ${skip}` : ''}${none ? ` · 跳过 ${none}` : ''}）· 复习锚点已更新`);
+      toast(`已记录 ${ok + bad} 道（对 ${ok} / 错 ${bad}${skip ? ` · 未练习 ${skip}` : ''}${none ? ` · 跳过 ${none}` : ''}）· 推送周期已更新`);
     });
   }
   // 单题批改卡片：折叠题面 + 显示答案 + 对/错选择
@@ -1414,15 +1420,15 @@
     const srcChips = srcs.length ? srcs.map(k => `<button class="chip ${k.id === f.srcId ? 'active' : ''}" data-src="${k.id}">${esc(k.name)}</button>`).join('') : '<span class="ms-empty">暂无来源</span>';
     // 仪表盘：已掌握率环形 + 连续打卡 + 学科分布（基于全量数据）
     const knownPct = errs.length ? Math.round(known / errs.length * 100) : 0;
-    const leechCount = errs.filter(e => DB.isLeech(e)).length;
+    const drillCount = errs.filter(e => DB.getRType(e) === 'drill').length;
     const streak = computeStreak(DB.getErrors());
     const subjDist = DB.getSubjects().map(s => {
       const es = DB.getErrors({ subject: s });
-      return { s, total: es.length, known: es.filter(e => DB.isMastered(e)).length, leech: es.filter(e => DB.isLeech(e)).length };
+      return { s, total: es.length, known: es.filter(e => DB.isMastered(e)).length, drill: es.filter(e => DB.getRType(e) === 'drill').length };
     });
     const maxSubj = Math.max(1, ...subjDist.map(x => x.total));
     const subjDistHTML = subjDist.map(x => `
-      <div class="ms-mrow"><span>${esc(x.s)}</span><div class="bar"><i style="width:${Math.round(x.total / maxSubj * 100)}%;background:#5f9c78"></i></div><b>${x.total}${x.leech ? ` <span class="leech-n">易${x.leech}</span>` : ''}</b></div>`).join('');
+      <div class="ms-mrow"><span>${esc(x.s)}</span><div class="bar"><i style="width:${Math.round(x.total / maxSubj * 100)}%;background:#5f9c78"></i></div><b>${x.total}${x.drill ? ` <span class="drill-n">记${x.drill}</span>` : ''}</b></div>`).join('');
     return `
       <div class="ms-stat">
         <div class="ms-block dash">
@@ -1432,7 +1438,7 @@
           <div class="dash-stats">
             <div class="ds"><div class="num">${streak}</div><div class="lab">连续打卡(天)</div></div>
             <div class="ds"><div class="num">${errs.length}</div><div class="lab">错题总数</div></div>
-            <div class="ds"><div class="num" style="color:var(--bad)">${leechCount}</div><div class="lab">易错题</div></div>
+            <div class="ds"><div class="num">${drillCount}</div><div class="lab">记忆型</div></div>
           </div>
         </div>
         <div class="ms-block" style="margin-top:14px">
@@ -1490,26 +1496,38 @@
   function openKwManage(type) {
     const subjects = DB.getSubjects();
     let sel = subjects[0];
+    let selRType = 'stable';   // 新增知识点时一并选题型（稳定型 / 记忆型）
     function listHTML() {
       const list = DB.getKeywords(type).filter(k => k.subject === sel);
       const errsAll = DB.getErrors();
       return list.length ? list.map(k => {
         const cnt = errsAll.filter(e => e.kpId === k.id || e.srcId === k.id).length;
+        const rTag = (type === 'kp')
+          ? `<button class="opt rt ${k.rType === 'drill' ? 'on' : ''}" data-rt-toggle="${k.id}">${k.rType === 'drill' ? '记忆型' : '稳定型'}</button>`
+          : '';
         return `
         <div class="item" style="display:flex;align-items:center;gap:10px;cursor:default">
           <div style="flex:1">${esc(k.name)}${cnt ? `<span class="kw-cnt">${cnt} 道</span>` : ''}</div>
+          ${rTag}
           <button class="opt" data-edit="${k.id}">改</button>
           <button class="opt" data-del="${k.id}" style="color:var(--bad)">删</button>
         </div>`;
       }).join('') : '<div class="empty">该科目下暂无，点击下方新增</div>';
     }
     function sheetHTML() {
+      const rTypeSeg = (type === 'kp')
+        ? `<div class="seg" id="kwRType" style="margin-top:10px">
+             <span class="seg-lab">题型</span>
+             <button class="chip ${selRType === 'stable' ? 'active' : ''}" data-rt-sel="stable">稳定型</button>
+             <button class="chip ${selRType === 'drill' ? 'active' : ''}" data-rt-sel="drill">记忆型</button>
+           </div>` : '';
       return `
         <button class="close-x">✕</button>
         <h3>${type === 'kp' ? '知识点' : '来源'}管理</h3>
         <div class="seg" id="kwSubj">
           ${subjects.map(s => `<button class="chip ${s === sel ? 'active' : ''}" data-s="${s}">${s}</button>`).join('')}
         </div>
+        ${rTypeSeg}
         <div id="kwList" style="margin-top:8px">${listHTML()}</div>
         <button class="btn" id="kwAdd" style="margin-top:12px">＋ 新增${type === 'kp' ? '知识点' : '来源'}（${sel}）</button>`;
     }
@@ -1518,6 +1536,11 @@
       body.innerHTML = sheetHTML();
       body.querySelector('.close-x').addEventListener('click', closeSheet);
       body.querySelectorAll('#kwSubj .chip').forEach(c => c.addEventListener('click', () => { sel = c.dataset.s; rebind(); }));
+      body.querySelectorAll('#kwRType .chip').forEach(c => c.addEventListener('click', () => { selRType = c.dataset.rtSel; rebind(); }));
+      body.querySelectorAll('[data-rt-toggle]').forEach(b => b.addEventListener('click', () => {
+        const k = DB.getKeywords('kp').find(x => x.id === b.dataset.rtToggle);
+        if (k) { DB.setKeywordRType(k.id, k.rType === 'drill' ? 'stable' : 'drill'); rebind(); }
+      }));
       body.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => {
         const k = DB.getKeywords(type).find(x => x.id === b.dataset.edit);
         const n = prompt('修改为：', k.name); if (n && n.trim()) { DB.updateKeyword(k.id, n); rebind(); }
@@ -1528,7 +1551,7 @@
         if (confirm('删除该' + (type === 'kp' ? '知识点' : '来源') + '？')) { DB.deleteKeyword(b.dataset.del); rebind(); }
       }));
       body.querySelector('#kwAdd').addEventListener('click', () => {
-        const n = prompt('输入名称：'); if (n && n.trim()) { DB.addKeyword(type, n, sel); rebind(); }
+        const n = prompt('输入名称：'); if (n && n.trim()) { DB.addKeyword(type, n, sel, selRType); rebind(); }
       });
     }
     rebind();
