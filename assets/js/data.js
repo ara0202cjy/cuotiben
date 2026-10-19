@@ -466,7 +466,7 @@
       keywords: read(K('keywords'), []),
       errors: read(K('errors'), []),
       practiceSession: getPracticeSession(),
-      redoList: getRedoList(),
+      redoList: getRedoRaw(),
     };
   }
   function exportData() { return snapshot(); }
@@ -491,10 +491,43 @@
   // 错题重练清单（redo）：用户在笔记本勾选「加入重练」后进入首页「错题重练」板块，
   // 与练习队列(practiceSession)不同——它是常驻清单：逐题批改后**不会清空**，错的题次日仍留在板块，
   // 直到答对固定锚点后再按原复习逻辑推送；从板块「移出」仅移除清单引用，不动题库与复习记录。
-  function getRedoList() { return read(K('redo'), []); }
-  function setRedoList(arr) {
-    write(K('redo'), Array.isArray(arr) ? arr : []);
+  // 存储为带时间戳的映射 { [id]: { ts, deleted } }：删除写入「墓碑」(deleted:true)。
+  // 合并时按每题最新时间戳裁决，使「加入 / 移出」都能跨端正确传播——并集只能加不能删，故用墓碑机制（方案 B）。
+  function normalizeRedoMap(x) {
+    if (!x || typeof x !== 'object') return {};
+    if (Array.isArray(x)) {            // 兼容旧版纯 id 数组
+      const m = {}; x.forEach(id => { if (id) m[id] = { ts: 0, deleted: false }; }); return m;
+    }
+    const m = {};
+    Object.keys(x).forEach(id => {
+      const v = x[id];
+      if (v && typeof v === 'object') m[id] = { ts: v.ts || 0, deleted: !!v.deleted };
+      else if (v) m[id] = { ts: 0, deleted: false };   // 兼容裸 id 值
+    });
+    return m;
+  }
+  function getRedoRaw() { return normalizeRedoMap(read(K('redo'), {})); }
+  // 返回当前「有效」重练题 id（未删除），按加入时间升序
+  function getRedoList() {
+    const raw = getRedoRaw();
+    return Object.keys(raw).filter(id => raw[id] && !raw[id].deleted)
+      .sort((a, b) => (raw[a].ts || 0) - (raw[b].ts || 0));
+  }
+  // 加入重练：写入/刷新为「有效」状态（带当前时间戳）
+  function addToRedo(ids) {
+    if (!Array.isArray(ids)) ids = ids ? [ids] : [];
+    const raw = getRedoRaw(); const t = now();
+    ids.forEach(id => { if (id) raw[id] = { ts: t, deleted: false }; });
+    write(K('redo'), raw);
     autoSyncTick();   // 同步到云端，多设备可延续同一份重练清单
+  }
+  // 移出重练：写入「墓碑」(deleted:true)，保留时间戳以便跨端合并时取胜
+  function removeFromRedo(id) {
+    if (!id) return;
+    const raw = getRedoRaw();
+    raw[id] = { ts: now(), deleted: true };
+    write(K('redo'), raw);
+    autoSyncTick();
   }
   // 未练习：顺延到明天再推送（不记录对错，仅延后下次到期时间）
   function snooze(id) {
@@ -556,9 +589,14 @@
     // 练习队列取并集（多设备各自添加的题都保留，避免一方覆盖另一方）
     const ps = new Set([...(local.practiceSession || []), ...(cloud.practiceSession || [])]);
     local.practiceSession = Array.from(ps);
-    // 错题重练清单同样取并集；合并结果写回存储（此前仅存内存未持久化，这里一并修正）
-    const rd = new Set([...(local.redoList || []), ...(cloud.redoList || [])]);
-    local.redoList = Array.from(rd);
+    // 错题重练清单：按 id 合并，每条取时间戳最新者（墓碑 deleted:true 即视为移除，多端均生效）
+    const lRedo = normalizeRedoMap(local.redoList), cRedo = normalizeRedoMap(cloud.redoList);
+    const mRedo = {};
+    new Set([...Object.keys(lRedo), ...Object.keys(cRedo)]).forEach(id => {
+      const L = lRedo[id], C = cRedo[id];
+      mRedo[id] = (L && C) ? (L.ts >= C.ts ? L : C) : (L || C);
+    });
+    local.redoList = mRedo;
     write(K('practice'), local.practiceSession);
     write(K('redo'), local.redoList);
     _importing = true;            // 合并期间抑制自动回传，避免无意义上传/递归
@@ -665,7 +703,7 @@
     getErrors, getError, addError, updateError, deleteError,
     dueDaysForReview, nextDueDate, isMastered, dueReviews, recordReview,
     isLeech, wrongCount, snooze, getPracticeSession, setPracticeSession,
-    getRedoList, setRedoList,
+    getRedoList, addToRedo, removeFromRedo,
     toPinyin, seedIfEmpty, seedReviewDemo,
     exportData, importData, clearAll, snapshot,
     gistUpload, gistDownload, gistTest,

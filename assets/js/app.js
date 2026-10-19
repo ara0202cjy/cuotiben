@@ -42,7 +42,8 @@
   const setPractice = arr => DB.setPracticeSession(arr);
   // 错题重练清单（redo）：首页「错题重练」板块数据，常驻、批改后不清空（仅「移出」时移除）
   const getRedo = () => DB.getRedoList() || [];
-  const setRedo = arr => DB.setRedoList(arr);
+  const addRedo = ids => DB.addToRedo(ids);
+  const delRedo = id => DB.removeFromRedo(id);
 
   /* ---------------- 通用 UI ---------------- */
   function toast(msg) {
@@ -209,7 +210,7 @@
       }));
       $$('#homeRedoList .redo-out').forEach(b => b.addEventListener('click', ev => {
         ev.stopPropagation();
-        setRedo(getRedo().filter(id => id !== b.dataset.delRedo));
+        delRedo(b.dataset.delRedo);
         toast('已移出重练板块（题库与学习记录不变）');
         renderHome();
       }));
@@ -642,8 +643,8 @@
         if (!ids.length) { toast('请先勾选要重练的错题'); return; }
         const errs = ids.map(id => DB.getError(id)).filter(Boolean);
         if (!errs.length) { toast('没有可重练的错题'); return; }
-        // 选中题加入首页「错题重练」板块（常驻重练清单，去重合并；不动题库，仅加入重练池）
-        setRedo(Array.from(new Set([...getRedo(), ...ids])));
+        // 选中题加入首页「错题重练」板块（常驻重练清单；不动题库，仅加入重练池）
+        addRedo(ids);
         setView('home');
         toast(`已加入错题重练 ${ids.length} 道 · 在首页「错题重练」板块集中练习`);
       });
@@ -1308,7 +1309,7 @@
         DB.recordReview(e.id, v === 'ok');
         if (opts && opts.redo && v === 'ok') {
           // 答对即固定锚点：离开重练板块，回归正常复习推送流（不删题库、不丢学习记录）
-          setRedo(getRedo().filter(id => id !== e.id));
+          delRedo(e.id);
         }
         if (v === 'ok') ok++; else bad++;
       });
