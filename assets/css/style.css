@@ -374,6 +374,28 @@ body {
   float: right; border: none; background: var(--surface-2); width: 30px; height: 30px;
   border-radius: 50%; font-size: 16px; color: var(--ink-2); cursor: pointer;
 }
+/* 详情页头部：标题 + 右上角小图标操作（编辑 / 删除 / 关闭） */
+.detail-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.detail-head h3 { margin: 0; font-size: 17px; }
+.detail-head-actions { display: flex; align-items: center; gap: 8px; }
+.sheet .detail-head-actions .close-x { float: none; margin: 0; }
+.icon-btn-sm {
+  width: 30px; height: 30px; border: none; border-radius: 50%;
+  background: var(--surface-2); color: var(--ink-2); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; padding: 0;
+}
+.icon-btn-sm:active { transform: scale(.92); }
+.icon-btn-sm.danger { background: #f6e3e3; color: #c25c5c; }
+/* 详情页底部三按钮：一行排列、精致小字 */
+.detail-actions { display: flex; gap: 8px; margin-top: 18px; }
+.detail-actions .act {
+  flex: 1; min-width: 0; padding: 11px 4px; border-radius: 12px;
+  font-size: 12.5px; font-weight: 600; cursor: pointer; line-height: 1.2;
+  background: var(--surface); color: var(--ink); border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+.detail-actions .act:active { transform: scale(.98); }
+.detail-actions .act.act-on { background: var(--primary); color: #fff; border-color: transparent; }
 
 /* ============ toast ============ */
 .toast {

@@ -1134,20 +1134,28 @@
       ? '🔁 加练中 · 下次推送：' + fmtDue(po.due)
       : (DB.isMastered(e) ? '🟢 已掌握 · 已停止推送' : '🔔 下次推送：' + fmtDue(DB.nextDueDate(e)));
     const body = openSheet(`
-      <button class="close-x">✕</button>
-      <h3>错题详情</h3>
+      <div class="detail-head">
+        <h3>错题详情</h3>
+        <div class="detail-head-actions">
+          <button class="icon-btn-sm" id="editErr" title="编辑" aria-label="编辑">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+          </button>
+          <button class="icon-btn-sm danger" id="delErr" title="删除" aria-label="删除">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+          </button>
+          <button class="close-x" title="关闭" aria-label="关闭">✕</button>
+        </div>
+      </div>
       <div class="item-meta">${metaTagsHTML(e)}</div>
       ${questionBlockHTML(e, isPinyin)}
       <div class="item-when" style="margin-top:8px">${whenText}</div>
       ${e.reviews.length ? `<div class="records"><p class="card-h" style="margin-top:14px">复习记录（已答对 ${e.reviews.filter(r => r.correct).length} / 共 ${e.reviews.length} 次）</p>
         ${e.reviews.map(r => `<div class="rec"><span class="${r.correct ? 'r-ok' : 'r-bad'}">${r.correct ? '✓ 答对' : '✗ 答错'}</span>
         <span>${fmtDate(r.date)}</span></div>`).join('')}</div>` : ''}
-      <div class="btn-row" style="margin-top:16px;flex-wrap:wrap;gap:8px">
-        <button class="btn ghost" id="delErr">删除</button>
-        <button class="btn" id="editErr">编辑</button>
-        <button class="btn" id="redoEarly">提前重练</button>
-        <button class="btn" id="practiceOnce">加练一次</button>
-        <button class="btn ${DB.isMastered(e) ? 'ghost' : ''}" id="markMastered">${DB.isMastered(e) ? '取消已掌握' : '标记已掌握'}</button>
+      <div class="detail-actions">
+        <button class="act" id="redoEarly">提前重练</button>
+        <button class="act" id="practiceOnce">加练一次</button>
+        <button class="act ${DB.isMastered(e) ? 'act-on' : ''}" id="markMastered">${DB.isMastered(e) ? '取消已掌握' : '标记已掌握'}</button>
       </div>`);
     $('#delErr').addEventListener('click', () => {
       if (confirm('确定删除这道错题？')) { DB.deleteError(id); closeSheet(); toast('已删除'); setView(state.view); }
