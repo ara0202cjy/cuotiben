@@ -36,7 +36,7 @@
     next.onclick = ev => { ev.stopPropagation(); show(idx + 1); };
   }
 
-  const state = { view: 'home', subject: '全部', filter: {}, expanded: {}, selectMode: false, selected: new Set(), mineFilter: { subject: '全部', kpId: null, srcId: null }, mineStatOpen: true, search: '' };
+  const state = { view: 'home', subject: '全部', filter: {}, expanded: {}, mastExpanded: {}, selectMode: false, selected: new Set(), mineFilter: { subject: '全部', kpId: null, srcId: null }, mineStatOpen: true, search: '' };
   // 练习队列（选题重练）已持久化到账户存储并随云端同步，统一经 DB 读写（不再仅存内存）
   const getPractice = () => DB.getPracticeSession() || [];
   const setPractice = arr => DB.setPracticeSession(arr);
@@ -598,6 +598,16 @@
         const errs = visibleSubjectErrs(s);
         const isOpen = !!expanded[s];
         const allSel = errs.length > 0 && errs.every(e => state.selected.has(e.id));
+        // 已掌握题单独折叠：仅在「未显式只看已掌握」时，将已掌握题收进折叠卡片，避免与待练题混在一起
+        const showAllErrs = f.mastery === 'known';
+        const unmastered = showAllErrs ? [] : errs.filter(e => !DB.isMastered(e));
+        const mastered = errs.filter(e => DB.isMastered(e));
+        const mainErrs = showAllErrs ? errs : unmastered;
+        const showMastCard = !showAllErrs && mastered.length > 0;
+        let mainInner;
+        if (mainErrs.length) mainInner = mainErrs.map(e => itemHTML(e, true, true, state.selectMode, state.selected.has(e.id))).join('');
+        else if (mastered.length && !showAllErrs) mainInner = `<div class="book-empty">本本暂无未掌握错题，已掌握题已折叠在下方 ✓</div>`;
+        else mainInner = `<div class="book-empty">${hasFilter ? '该本无符合筛选的错题' : '本错题本还是空的，点 ＋ 录入吧'}</div>`;
         return `
         <div class="book">
           <div class="book-head" data-s="${s}">
@@ -607,10 +617,18 @@
             <span class="book-chev">${isOpen ? '▾' : '▸'}</span>
           </div>
           <div class="book-body" id="book-${s}" ${isOpen ? '' : 'hidden'}>
-            ${errs.length
-              ? errs.map(e => itemHTML(e, true, true, state.selectMode, state.selected.has(e.id))).join('')
-              : `<div class="book-empty">${hasFilter ? '该本无符合筛选的错题' : '本错题本还是空的，点 ＋ 录入吧'}</div>`}
+            ${mainInner}
           </div>
+          ${showMastCard ? `
+          <div class="mast-card">
+            <div class="mast-head" data-ms="${s}">
+              <span class="mast-label">已掌握 ${mastered.length} 题</span>
+              <span class="mast-chev">${state.mastExpanded[s] ? '▾' : '▸'}</span>
+            </div>
+            <div class="mast-body" id="mast-${s}" ${state.mastExpanded[s] ? '' : 'hidden'}>
+              ${mastered.map(e => itemHTML(e, true, true, state.selectMode, state.selected.has(e.id))).join('')}
+            </div>
+          </div>` : ''}
         </div>`;
       }).join('') : `<div class="empty">没有符合当前筛选的错题</div>`}`;
 
@@ -667,6 +685,13 @@
       const body = document.getElementById('book-' + s);
       if (body) body.hidden = !state.expanded[s];
       const chev = h.querySelector('.book-chev'); if (chev) chev.textContent = state.expanded[s] ? '▾' : '▸';
+    }));
+    // 「已掌握」折叠卡片：默认收起，点击标题展开/收起
+    $$('.mast-head').forEach(h => h.addEventListener('click', () => {
+      const s = h.dataset.ms; state.mastExpanded[s] = !state.mastExpanded[s];
+      const body = document.getElementById('mast-' + s);
+      if (body) body.hidden = !state.mastExpanded[s];
+      const chev = h.querySelector('.mast-chev'); if (chev) chev.textContent = state.mastExpanded[s] ? '▾' : '▸';
     }));
     bindItems();
     bindItemChecks();
