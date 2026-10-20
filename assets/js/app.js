@@ -567,7 +567,7 @@
     const subjects = DB.getSubjects();
     const expanded = state.expanded || {};
     const f = state.filter;
-    const hasFilter = !!(f.kpId || f.srcId || f.mastery || f.from || f.to || (state.subject && state.subject !== '全部') || (state.search && state.search.trim()));
+    const hasFilter = !!(f.kpId || f.srcId || f.mastery || f.wrong || f.from || f.to || (state.subject && state.subject !== '全部') || (state.search && state.search.trim()));
     const total = DB.getErrors().length;
     const allOpen = subjects.length > 0 && subjects.every(s => expanded[s]);
 
@@ -697,17 +697,32 @@
       });
     });
   }
+  // 错题次数 = 该错题在复习中被判错的次数（reviews 中 correct 为 false 的条数）
+  function wrongCount(e) { return (e.reviews || []).filter(r => !r.correct).length; }
+  // 按「错题次数」筛选：0 / 1 / 2 / ≥3
+  function applyWrongFilter(list, f) {
+    if (!f || !f.wrong) return list;
+    return list.filter(e => {
+      const w = wrongCount(e);
+      if (f.wrong === '0') return w === 0;
+      if (f.wrong === '1') return w === 1;
+      if (f.wrong === '2') return w === 2;
+      if (f.wrong === '3p') return w >= 3;
+      return true;
+    });
+  }
   function filterLabel() {
     const f = state.filter; let n = 0;
     if (state.subject && state.subject !== '全部') n++;
     if (f.kpId) n++; if (f.srcId) n++; if (f.mastery) n++;
+    if (f.wrong) n++;
     if (f.from || f.to) n++;
     return n ? `（${n}）` : '';
   }
   // 取某学科在当前筛选下匹配的错题（笔记本渲染与勾选共用）
   function listSubjectErrs(s) {
     const f = state.filter;
-    const hasFilter = !!(f.kpId || f.srcId || f.mastery || f.from || f.to || (state.subject && state.subject !== '全部'));
+    const hasFilter = !!(f.kpId || f.srcId || f.mastery || f.wrong || f.from || f.to || (state.subject && state.subject !== '全部'));
     let list = DB.getErrors(Object.assign({ subject: s }, (f.kpId || f.srcId || f.mastery) ? f : {}));
     // 起止时间筛选：按录入日期 createdAt 的 YYYY-MM-DD 比较，含边界（from/to 为空表示不限）
     if (f.from || f.to) {
@@ -718,6 +733,8 @@
         return true;
       });
     }
+    // 错题次数筛选：0 / 1 / 2 / ≥3
+    list = applyWrongFilter(list, f);
     return list;
   }
 
@@ -768,6 +785,13 @@
         <div class="f-group"><label>掌握</label><div class="kw-box" id="fM">
           <span class="kw ${!f.mastery ? 'active' : ''}" data-m="">不限</span>
           ${Object.values(DB.MASTERY).map(m => `<span class="kw ${f.mastery === m.key ? 'active' : ''}" data-m="${m.key}">${m.label}</span>`).join('')}
+        </div></div>
+        <div class="f-group"><label>错题次数</label><div class="kw-box" id="fW">
+          <span class="kw ${!f.wrong ? 'active' : ''}" data-w="">不限</span>
+          <span class="kw ${f.wrong === '0' ? 'active' : ''}" data-w="0">0 次</span>
+          <span class="kw ${f.wrong === '1' ? 'active' : ''}" data-w="1">1 次</span>
+          <span class="kw ${f.wrong === '2' ? 'active' : ''}" data-w="2">2 次</span>
+          <span class="kw ${f.wrong === '3p' ? 'active' : ''}" data-w="3p">≥3 次</span>
         </div></div>
         <div class="f-group f-date"><label>起止时间（按录入日期）</label>
           <div class="date-row">
@@ -820,6 +844,10 @@
       body.querySelectorAll('#fM .kw').forEach(y => y.classList.remove('active'));
       x.classList.add('active');
     }));
+    body.querySelectorAll('#fW .kw').forEach(x => x.addEventListener('click', () => {
+      body.querySelectorAll('#fW .kw').forEach(y => y.classList.remove('active'));
+      x.classList.add('active');
+    }));
     $('#fReset').addEventListener('click', () => {
       state.subject = lockSubject || '全部'; state.filter = {};
       if (lockSubject) state.expanded[lockSubject] = true;
@@ -830,10 +858,11 @@
       const kp = body.querySelector('#fKp .active')?.dataset.kp || '';
       const src = body.querySelector('#fSrc .active')?.dataset.src || '';
       const m = body.querySelector('#fM .active')?.dataset.m || '';
+      const w = body.querySelector('#fW .active')?.dataset.w || '';
       const from = body.querySelector('#fFrom')?.value || '';
       const to = body.querySelector('#fTo')?.value || '';
       state.subject = subj;
-      state.filter = { kpId: kp || null, srcId: src || null, mastery: m || null, from: from || null, to: to || null };
+      state.filter = { kpId: kp || null, srcId: src || null, mastery: m || null, wrong: w || null, from: from || null, to: to || null };
       if (lockSubject) state.expanded[lockSubject] = true;
       closeSheet(); renderList();
     });
@@ -1714,6 +1743,7 @@
       list = DB.getErrors(Object.assign(
         {}, state.subject !== '全部' ? { subject: state.subject } : {}, state.filter
       ));
+      list = applyWrongFilter(list, state.filter);   // 错题次数筛选（DB.getErrors 不识别该字段，单独后置）
     }
     if (!list.length) { toast('当前没有可导出的错题'); return; }
     const body = openSheet(`
