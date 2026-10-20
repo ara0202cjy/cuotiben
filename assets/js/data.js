@@ -288,10 +288,23 @@
     autoSyncTick(); return e;
   }
 
+  // 错题删除墓碑：{ [id]: { rev } }。删除视为一次 rev +1；跨端合并时该 id 不进本地，
+  // 从而「删除」也能同步到其他设备（否则云端旧副本会把删掉的题并回来，正是此前"删了又还原"的根因）。
+  function getErrDelRaw() {
+    const x = read(K('errdel'), {});
+    if (!x || typeof x !== 'object' || Array.isArray(x)) return {};
+    const m = {};
+    Object.keys(x).forEach(id => { const v = x[id]; m[id] = { rev: (v && v.rev) || 0 }; });
+    return m;
+  }
   function deleteError(id) {
     let list = read(K('errors'), []);
     list = list.filter(x => x.id !== id);
     write(K('errors'), list);
+    // 写删除墓碑：记录被删错题 id，跨端合并时该 id 不进本地，避免被云端旧副本并回来
+    const del = getErrDelRaw();
+    del[id] = { rev: ((del[id] && del[id].rev) || 0) + 1 };
+    write(K('errdel'), del);
     autoSyncTick();
   }
 
@@ -490,6 +503,7 @@
       keywords: read(K('keywords'), []),
       kwDel: getKwDelRaw(),          // 知识点删除墓碑（跨端传播删除）
       errors: read(K('errors'), []),
+      errDel: getErrDelRaw(),        // 错题删除墓碑（跨端传播删除）
       practiceSession: getPracticeSession(),
       redoList: getRedoRaw(),
     };
@@ -501,11 +515,12 @@
     write(K('subjects'), (Array.isArray(data.subjects) && data.subjects.length) ? data.subjects : DEFAULT_SUBJECTS.slice());
     write(K('keywords'), data.keywords);
     write(K('kwdel'), (data.kwDel && typeof data.kwDel === 'object') ? data.kwDel : {});
+    write(K('errdel'), (data.errDel && typeof data.errDel === 'object') ? data.errDel : {});
     write(K('errors'), data.errors);
     autoSyncTick();
   }
   function clearAll() {
-    [K('subjects'), K('errors'), K('keywords'), K('kwdel'), K('practice'), K('redo')].forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
+    [K('subjects'), K('errors'), K('keywords'), K('kwdel'), K('errdel'), K('practice'), K('redo')].forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
     getSubjects(); // 重建默认科目，保证应用仍可正常使用
   }
   // 练习队列（选题重练）：持久化到本账户存储，并随快照同步到云端（多设备可延续 / 远程管理）
@@ -594,9 +609,17 @@
     try { cloud = JSON.parse(content); } catch (e) { return; }
     if (!cloud || !Array.isArray(cloud.errors)) return;
     const local = snapshot();
+    // 错题删除墓碑：合并本地与云端（取更大 rev），最终据此剔除已删除的错题
+    const lEDel = local.errDel || {}, cEDel = (cloud.errDel && typeof cloud.errDel === 'object') ? cloud.errDel : {};
+    const errDel = {};
+    new Set([...Object.keys(lEDel), ...Object.keys(cEDel)]).forEach(id => {
+      const lr = (lEDel[id] && lEDel[id].rev) || 0, cr = (cEDel[id] && cEDel[id].rev) || 0;
+      errDel[id] = { rev: Math.max(lr, cr) };
+    });
     const map = new Map(local.errors.map(e => [e.id, e]));
     cloud.errors.forEach(ce => {
       if (!ce || !ce.id) return;
+      if (errDel[ce.id]) return;   // 已在删除墓碑中 → 跳过，不把已删的题并回来
       const le = map.get(ce.id);
       if (!le) { map.set(ce.id, ce); return; }
       // 已存在：合并云端有而本地没有的复习记录（按 date 去重），保证复习历史不丢
@@ -608,6 +631,9 @@
         if (le[k] === undefined || le[k] === null || le[k] === '') le[k] = ce[k];
       });
     });
+    // 最终剔除被删除的错题（本地或云端墓碑命中者均不进本地）
+    Object.keys(errDel).forEach(id => map.delete(id));
+    local.errDel = errDel;
     local.errors = Array.from(map.values());
     local.subjects = Array.from(new Set([...(local.subjects || []), ...(cloud.subjects || [])]));
     // 知识点：按 id 合并，取「版本号(rev)」更大者。rev 是本地修改次数（新增/改名/改题型/删除均 +1），
