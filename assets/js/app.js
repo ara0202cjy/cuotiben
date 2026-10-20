@@ -1270,7 +1270,7 @@
         <span class="grade-title">${gTitle} · 共 ${due.length} 道</span>
         <button class="btn small" id="gradeSave">保存批改</button>
       </div>
-      <p class="grade-tip">先凭记忆自测，需要核对时点「显示答案」，再勾选「对 / 错」；点「未练习」表示本次跳过不记录。</p>
+      <p class="grade-tip">先凭记忆自测，需要核对时点「显示答案」，再勾选「对 / 错」；点「未练习」表示本次不练习，该错题仍保留在复习栏（不记录、不推送）。</p>
       <div id="gradeList">
         ${due.map(gradeItemHTML).join('')}
       </div>`;
@@ -1297,7 +1297,7 @@
       due.forEach(e => {
         if (!(e.id in sel)) { none++; return; }
         const v = sel[e.id];
-        if (v === 'skip') { skip++; DB.snooze(e.id); return; }   // 未练习：不记录对错，顺延到明天再推
+        if (v === 'skip') { skip++; return; }   // 未练习：视为未做，保留在复习栏，不记录不推送（与「未选择」一致）
         DB.recordReview(e.id, v === 'ok');
         if (opts && opts.redo && v === 'ok') {
           // 答对即移出重练板块，回归正常周期推送流（不删题库、不丢学习记录；其余节点推送日期不变）
@@ -1307,7 +1307,7 @@
       });
       if (!(opts && opts.redo)) setPractice([]);   // 非重练模式：练习队列随批改清空；重练模式保留 redolist，错的题次日仍留在板块
       backFn();
-      toast(`已记录 ${ok + bad} 道（对 ${ok} / 错 ${bad}${skip ? ` · 未练习 ${skip}` : ''}${none ? ` · 跳过 ${none}` : ''}）· 推送周期已更新`);
+      toast(`已批改 ${ok + bad} 道（对 ${ok} / 错 ${bad}${(skip || none) ? ` · 未练习 ${skip} 道、未选 ${none} 道 保留在复习栏` : ''}）· 推送周期已更新`);
     });
   }
   // 单题批改卡片：折叠题面 + 显示答案 + 对/错选择
