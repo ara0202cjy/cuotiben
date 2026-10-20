@@ -75,9 +75,11 @@
     const mm = DB.MASTERY[m] || DB.MASTERY.unknown;
     return `<span class="mastery ${mm.cls}">${mm.label}</span>`;
   }
-  // 掌握状态展示：自动判定的已掌握也显示为“已掌握”
+  // 掌握状态展示（二态）：已掌握（停止推送或手动标记）/ 未掌握（仍在推送）
   function masteryDisplay(e) {
-    return DB.isMastered(e) ? masteryTag('known') : masteryTag(e.mastery || 'unknown');
+    return DB.isMastered(e)
+      ? '<span class="mastery m-known">已掌握</span>'
+      : '<span class="mastery m-unknown">未掌握</span>';
   }
   function kwName(id) { const k = DB.getKeywords().find(x => x.id === id); return k ? k.name : ''; }
   // 卡片顶部统一标签：科目 → 知识点 → 来源 → 题型 → 掌握情况
@@ -428,7 +430,7 @@
         <p class="set-tip">已登录并开启自动同步的账户，所有修改会实时备份到你自己的 GitHub Gist（私密云端）。<b>同步覆盖本账户的全部数据</b>：</p>
         <ul style="margin:6px 0 2px 18px;color:var(--ink-2);font-size:13px;line-height:1.8">
           <li><b>错题记录</b>：题目、正确答案、图片、拼音、所属科目 / 知识点 / 来源</li>
-          <li><b>复习情况</b>：每道题的做题对错历史、掌握状态（未掌握 / 部分掌握 / 已掌握）、下次复习时间</li>
+          <li><b>复习情况</b>：每道题的做题对错历史、掌握状态（未掌握 / 已掌握）、下次复习时间</li>
           <li><b>科目、关键词、来源</b>等全部设置项</li>
         </ul>
         <p class="set-tip" style="margin-top:6px">换手机 / 清缓存后，用同一账户登录即可自动拉回全部数据，不会丢失。账户密码与 Token 只存本机，<b>不会</b>上传云端。</p>
@@ -963,11 +965,6 @@
         <button class="btn ghost sm" id="renameKp" style="margin-top:8px">✎ 重命名所选知识点</button></div>
       <div class="field"><label>来源</label><div class="kw-box" id="entrySrc">${srcOptions()}</div>
         <button class="btn ghost sm" id="renameSrc" style="margin-top:8px">✎ 重命名所选来源</button></div>
-      <div class="field"><label>掌握情况</label>
-        <div class="opt-row" id="entryMastery">
-          ${Object.values(DB.MASTERY).map(m => `<span class="opt ${form.mastery === m.key ? 'active' : ''}" data-m="${m.key}">${m.label}</span>`).join('')}
-        </div>
-      </div>
       <div class="field" id="entryAnsField">
         <label>正确答案</label>
         <textarea class="textarea" id="entryAnswer" placeholder="填写正确答案与解析…">${form.answer}</textarea>
@@ -1013,10 +1010,6 @@
         DB.updateKeyword(form.srcId, n.trim()); refresh(); toast('已重命名，相关错题同步更新 ✓');
       }
     });
-    $$('#entryMastery .opt').forEach(o => o.addEventListener('click', () => {
-      form.mastery = o.dataset.m;
-      $$('#entryMastery .opt').forEach(x => x.classList.toggle('active', x === o));
-    }));
     // 渲染图片预览 + 裁剪按钮（图片可矩形裁剪，不做识别）
     function renderImgPreview() {
       const wrap = $('#imgPreview');
@@ -1136,21 +1129,25 @@
   function openDetail(id) {
     const e = DB.getError(id); if (!e) return;
     const isPinyin = isDictError(e);
+    const po = e.practiceOnce;
+    const whenText = (po && po.due)
+      ? '🔁 加练中 · 下次推送：' + fmtDue(po.due)
+      : (DB.isMastered(e) ? '🟢 已掌握 · 已停止推送' : '🔔 下次推送：' + fmtDue(DB.nextDueDate(e)));
     const body = openSheet(`
       <button class="close-x">✕</button>
       <h3>错题详情</h3>
       <div class="item-meta">${metaTagsHTML(e)}</div>
       ${questionBlockHTML(e, isPinyin)}
-      <div class="item-when" style="margin-top:8px">
-        ${DB.isMastered(e) ? '🟢 已掌握 · 已停止推送' : '🔔 下次推送：' + fmtDue(DB.nextDueDate(e))}
-      </div>
+      <div class="item-when" style="margin-top:8px">${whenText}</div>
       ${e.reviews.length ? `<div class="records"><p class="card-h" style="margin-top:14px">复习记录（已答对 ${e.reviews.filter(r => r.correct).length} / 共 ${e.reviews.length} 次）</p>
         ${e.reviews.map(r => `<div class="rec"><span class="${r.correct ? 'r-ok' : 'r-bad'}">${r.correct ? '✓ 答对' : '✗ 答错'}</span>
         <span>${fmtDate(r.date)}</span></div>`).join('')}</div>` : ''}
-      <div class="btn-row" style="margin-top:16px">
+      <div class="btn-row" style="margin-top:16px;flex-wrap:wrap;gap:8px">
         <button class="btn ghost" id="delErr">删除</button>
         <button class="btn" id="editErr">编辑</button>
         <button class="btn" id="redoEarly">提前重练</button>
+        <button class="btn" id="practiceOnce">加练一次</button>
+        <button class="btn ${DB.isMastered(e) ? 'ghost' : ''}" id="markMastered">${DB.isMastered(e) ? '取消已掌握' : '标记已掌握'}</button>
       </div>`);
     $('#delErr').addEventListener('click', () => {
       if (confirm('确定删除这道错题？')) { DB.deleteError(id); closeSheet(); toast('已删除'); setView(state.view); }
@@ -1160,6 +1157,22 @@
     $('#redoEarly')?.addEventListener('click', () => {
       closeSheet();
       renderGrade([e], () => openDetail(id), {});
+    });
+    // 加练一次：按题型在 +30(记忆型)/+60(稳定型) 天后额外推送一次，独立于正常周期
+    $('#practiceOnce')?.addEventListener('click', () => {
+      const days = DB.practiceOnceDays(e);
+      DB.addPracticeOnce(e.id, days);
+      closeSheet();
+      toast(`已安排加练：${DB.getRType(e) === 'drill' ? '记忆型 +30 天' : '稳定型 +60 天'}后推送一次`);
+      setView(state.view);
+    });
+    // 提前标识已掌握（停止推送）/ 取消已掌握（恢复未掌握）
+    $('#markMastered')?.addEventListener('click', () => {
+      const on = !DB.isMastered(DB.getError(e.id));
+      DB.setMasteredFlag(e.id, on);
+      closeSheet();
+      toast(on ? '已标记「已掌握」，不再推送' : '已恢复为「未掌握」，将按周期继续推送');
+      setView(state.view);
     });
   }
   // 待复习推送标签：应复习日期 / 逾期天数
@@ -1188,7 +1201,7 @@
     $('#view').innerHTML = `
       <div class="card" style="padding:14px 16px">
         <p class="card-h" style="margin-bottom:6px">复习推送计划</p>
-        <p style="font-size:12.5px;color:var(--ink-2);margin:0;line-height:1.6"><b>记忆型</b>（如字词、单词）：按 +5 / +10 / +20 / +40 / +80 / +160 天推送，共 6 次全对即掌握；<b>稳定型</b>（如概念、公式）：按 +5 / +60 / +150 天推送，共 3 次全对即掌握。中途答错则周期从头开始（+5 天重试），直到走完一个完整周期且全对。已掌握不再自动推送，可在详情页点「提前重练」提前练习。</p>
+        <p style="font-size:12.5px;color:var(--ink-2);margin:0;line-height:1.6"><b>记忆型</b>（如字词、单词）：按 +5 / +10 / +20 / +40 / +80 / +160 天推送，共 6 次全对即掌握；<b>稳定型</b>（如概念、公式）：按 +5 / +60 / +150 天推送，共 3 次全对即掌握。中途答错则周期从头开始（+5 天重试），直到走完一个完整周期且全对。已掌握不再自动推送；在详情页可对单题「加练一次」（记忆型 +30 天 / 稳定型 +60 天额外推一次）或「标记已掌握」提前停推，也可「提前重练」提前练习。</p>
       </div>
       ${due.length === 0
         ? '<div class="empty"><span class="em-ico">🌱</span>今天没有需要复习的错题，继续保持！</div>'
@@ -1384,8 +1397,7 @@
     let revTotal = 0, revOk = 0, revBad = 0;
     errs.forEach(e => (e.reviews || []).forEach(r => { revTotal++; if (r.correct) revOk++; else revBad++; }));
     const known = errs.filter(e => DB.isMastered(e)).length;
-    const fuzzy = errs.filter(e => !DB.isMastered(e) && (e.mastery || 'unknown') === 'fuzzy').length;
-    const unknown = errs.length - known - fuzzy;
+    const unknown = errs.length - known;
     const pct = n => errs.length ? Math.round(n / errs.length * 100) : 0;
     const wrongBuckets = [0, 0, 0, 0, 0, 0];
     errs.forEach(e => { const w = (e.reviews || []).filter(r => !r.correct).length; wrongBuckets[w >= 5 ? 5 : w]++; });
@@ -1442,7 +1454,6 @@
           <p class="card-h">掌握情况（${errs.length} 道）</p>
           <div class="ms-mast">
             <div class="ms-mrow"><span>未掌握</span><div class="bar"><i style="width:${pct(unknown)}%;background:#d17878"></i></div><b>${unknown}</b></div>
-            <div class="ms-mrow"><span>部分掌握</span><div class="bar"><i style="width:${pct(fuzzy)}%;background:#c08f2e"></i></div><b>${fuzzy}</b></div>
             <div class="ms-mrow"><span>已掌握</span><div class="bar"><i style="width:${pct(known)}%;background:#5f9c78"></i></div><b>${known}</b></div>
           </div>
         </div>

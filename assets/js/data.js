@@ -139,7 +139,6 @@
   }
   const MASTERY = {
     unknown: { key: 'unknown', label: '未掌握', cls: 'm-unknown' },
-    fuzzy:   { key: 'fuzzy',   label: '部分掌握', cls: 'm-fuzzy' },
     known:   { key: 'known',   label: '已掌握', cls: 'm-known' },
   };
   // 语文专属：字词默写 / 字词（录入后自动注音）
@@ -255,8 +254,8 @@
     if (filter && filter.kpId) list = list.filter(e => e.kpId === filter.kpId);
     if (filter && filter.srcId) list = list.filter(e => e.srcId === filter.srcId);
     if (filter && filter.mastery) {
-      if (filter.mastery === 'known') list = list.filter(e => isMastered(e));
-      else list = list.filter(e => e.mastery === filter.mastery);
+      // 二态筛选：已掌握（停止推送）/ 未掌握（仍在推送）
+      list = list.filter(e => (filter.mastery === 'known') ? isMastered(e) : !isMastered(e));
     }
     // 默认按创建时间倒序
     return list.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
@@ -345,10 +344,10 @@
   }
   // 下一次应复习时间；已掌握或周期已完成返回 Infinity（不再推送）。未练习顺延：不早于 snoozedUntil。
   function nextDueDate(e) {
-    if (e.mastery === 'known') return Infinity;
     const s = schedule(e);
-    if (s.mastered) return Infinity;
-    const due = s.nextDue;
+    let due = (e.mastery === 'known' || s.mastered) ? Infinity : s.nextDue;
+    const po = e.practiceOnce;                      // 加练一次：独立追加的额外推送
+    if (po && po.due) due = Math.min(due, po.due);  // 取更早（或本次加练）的推送日期
     const snooze = e.snoozedUntil || 0;             // 未练习顺延：下次到期不早于该时间戳
     return Math.max(due, snooze);
   }
@@ -361,7 +360,11 @@
   function dueReviews() {
     const nowT = Date.now();
     const list = read(K('errors'), []);
-    const due = list.filter(e => !isMastered(e) && nextDueDate(e) <= nowT);
+    const due = list.filter(e => {
+      // 加练一次已到/逾期（含对「已掌握」题的加练）也列入待复习
+      if (e.practiceOnce && e.practiceOnce.due && e.practiceOnce.due <= nowT) return true;
+      return !isMastered(e) && nextDueDate(e) <= nowT;
+    });
     return due.sort((a, b) => nextDueDate(a) - nextDueDate(b));
   }
   // 记录一次复习结果（correct: true/false）；走完整个周期全对后自动归类「已掌握」
@@ -372,8 +375,23 @@
     e.reviews.push({ date: now(), correct: !!correct });
     // 已掌握题重练：无论对错都不自动推送（保持 known）；其余题按周期判定是否归为已掌握
     if (e.mastery !== 'known' && isMastered(e)) e.mastery = 'known';
+    if (e.practiceOnce) e.practiceOnce = null;   // 本次练习即落实「加练一次」，清除标记回归原周期/已掌握（置 null 以便随 Object.assign 持久化）
     updateError(id, e);
     autoSyncTick();
+  }
+
+  // 加练一次：在 days 天后额外推送一次（独立于正常周期；批改后回到原周期，不重置、不延长、不计入掌握所需连续答对次数）
+  function practiceOnceDays(e) { return getRType(e) === 'drill' ? 30 : 60; }
+  function addPracticeOnce(id, days) {
+    const e = getError(id); if (!e) return;
+    e.practiceOnce = { due: Date.now() + (days || practiceOnceDays(e)) * DAY };
+    updateError(id, e); autoSyncTick();
+  }
+  // 提前标识已掌握（不再推送）/ 取消已掌握（恢复未掌握）：写入/清除 mastery='known'
+  function setMasteredFlag(id, on) {
+    const e = getError(id); if (!e) return;
+    e.mastery = on ? 'known' : 'unknown';
+    updateError(id, e); autoSyncTick();
   }
 
   /* ---------- 种子数据（首次打开时填充，方便预览框架） ---------- */
@@ -405,7 +423,7 @@
     addError({
       subject: '语文', mode: 'text',
       text: '默写：窈窕淑女，君子好逑。',
-      kpId: kp[2].id, srcId: src[1].id, mastery: 'fuzzy',
+      kpId: kp[2].id, srcId: src[1].id, mastery: 'unknown',
       answer: '窈窕淑女，君子好逑。', pinyin: 'yǎo tiǎo shū nǚ，jūn zǐ hǎo qiú。',
       createdAt: new Date(t0 - DAY).toISOString(),
     });
@@ -445,7 +463,7 @@
         answer: '由 (1,0) 得 a+b+c=0；由 (-1,2) 得 a-b+c=2；两式相减得 2b=-2 → b=-1，代入可得 a+c=1。',
         createdAt: ago(2) }),
       mk({ id: 'demo_chi1', subject: '语文',
-        text: '默写：窈窕淑女，君子好逑。', kpId: kpOf('字词默写', '语文'), srcId: srcOf('作业', '语文'), mastery: 'fuzzy',
+        text: '默写：窈窕淑女，君子好逑。', kpId: kpOf('字词默写', '语文'), srcId: srcOf('作业', '语文'), mastery: 'unknown',
         answer: '窈窕淑女，君子好逑。', pinyin: 'yǎo tiǎo shū nǚ，jūn zǐ hǎo qiú。',
         createdAt: ago(3) }),
       mk({ id: 'demo_eng1', subject: '英语',
@@ -627,7 +645,7 @@
       (ce.reviews || []).forEach(r => { if (r && r.date && !dates.has(r.date)) { le.reviews.push(r); dates.add(r.date); } });
       (le.reviews || []).sort((a, b) => new Date(a.date) - new Date(b.date));
       // 其余字段本地优先（本地为空才用云端，避免覆盖刚刚的本地编辑）
-      ['text','answer','subject','mastery','kpId','srcId','mode','pinyin','createdAt'].forEach(k => {
+      ['text','answer','subject','mastery','kpId','srcId','mode','pinyin','createdAt','practiceOnce'].forEach(k => {
         if (le[k] === undefined || le[k] === null || le[k] === '') le[k] = ce[k];
       });
     });
@@ -782,6 +800,7 @@
     getKeywords, addKeyword, updateKeyword, deleteKeyword, pruneUnusedKeywords,
     getErrors, getError, addError, updateError, deleteError,
     nextDueDate, isMastered, dueReviews, recordReview, getRType, setKeywordRType,
+    practiceOnceDays, addPracticeOnce, setMasteredFlag,
     snooze, getPracticeSession, setPracticeSession,
     getRedoList, addToRedo, removeFromRedo,
     toPinyin, seedIfEmpty, seedReviewDemo,
