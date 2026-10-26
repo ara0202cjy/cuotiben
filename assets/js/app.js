@@ -36,7 +36,7 @@
     next.onclick = ev => { ev.stopPropagation(); show(idx + 1); };
   }
 
-  const state = { view: 'home', subject: '全部', filter: {}, expanded: {}, mastExpanded: {}, selectMode: false, selected: new Set(), mineFilter: { subject: '全部', kpId: null, srcId: null }, mineStatOpen: true, search: '', sort: 'created', selfTest: true, revTab: 'due' };
+  const state = { view: 'home', subject: '全部', filter: {}, expanded: {}, mastExpanded: {}, selectMode: false, selected: new Set(), mineFilter: { subject: '全部', kpId: null, srcId: null }, mineStatOpen: true, search: '', sort: 'created', selfTest: false, revTab: 'due', revFilter: { subject: '全部', kpId: null, created: 'all', due: 'all' } };
   // 练习队列（选题重练）已持久化到账户存储并随云端同步，统一经 DB 读写（不再仅存内存）
   const getPractice = () => DB.getPracticeSession() || [];
   const setPractice = arr => DB.setPracticeSession(arr);
@@ -95,6 +95,49 @@
       return due.concat(redoDueList().filter(e => !ids.has(e.id)));
     }
     return due;
+  }
+  /* ---------- 复习页筛选：科目 / 知识点 / 添加日期 / 到期日期 ---------- */
+  const REV_CREATED = [['all', '全部'], ['today', '今天'], ['7', '近 7 天'], ['30', '近 30 天'], ['older', '更早']];
+  const REV_DUE = [['all', '全部'], ['overdue', '已逾期'], ['today', '今天到期'], ['week', '未来 7 天'], ['later', '更远']];
+  // 是否有任何筛选条件生效
+  function revFilterActive(f) {
+    f = f || state.revFilter || {};
+    return (f.subject && f.subject !== '全部' ? 1 : 0) + (f.kpId ? 1 : 0)
+      + (f.created && f.created !== 'all' ? 1 : 0) + (f.due && f.due !== 'all' ? 1 : 0);
+  }
+  function matchRevFilter(e) {
+    const f = state.revFilter || {};
+    if (f.subject && f.subject !== '全部' && e.subject !== f.subject) return false;
+    if (f.kpId && e.kpId !== f.kpId) return false;
+    const DAY = 86400000, t0 = startOfToday();
+    // 添加日期：按录入时间划段
+    if (f.created && f.created !== 'all') {
+      const c = new Date(e.createdAt).getTime();
+      if (isNaN(c)) return false;
+      if (f.created === 'today' && c < t0) return false;
+      if (f.created === '7' && c < t0 - 6 * DAY) return false;
+      if (f.created === '30' && c < t0 - 29 * DAY) return false;
+      if (f.created === 'older' && c >= t0 - 29 * DAY) return false;
+    }
+    // 到期日期：按下次推送时间划段（未到期的重练题也会归到「更远」）
+    if (f.due && f.due !== 'all') {
+      const t = DB.nextDueDate(e);
+      if (f.due === 'overdue' && !(t < t0)) return false;
+      if (f.due === 'today' && !(t >= t0 && t < t0 + DAY)) return false;
+      if (f.due === 'week' && !(t >= t0 && t < t0 + 7 * DAY)) return false;
+      if (f.due === 'later' && !(t >= t0 + 7 * DAY)) return false;
+    }
+    return true;
+  }
+  // 当前筛选的简短描述（显示在列表上方，方便随时知道为什么题目变少）
+  function revFilterChips(f) {
+    f = f || state.revFilter || {};
+    const out = [];
+    if (f.subject && f.subject !== '全部') out.push(f.subject);
+    if (f.kpId) { const k = DB.getKeywords('kp').find(x => x.id === f.kpId); if (k) out.push(k.name); }
+    const c = REV_CREATED.find(x => x[0] === f.created); if (c && c[0] !== 'all') out.push('添加：' + c[1]);
+    const d = REV_DUE.find(x => x[0] === f.due); if (d && d[0] !== 'all') out.push('到期：' + d[1]);
+    return out;
   }
   // 今日已批题数（按错题去重：同一道题今天批了两次只算一道）
   function doneTodayCount(errs) {
@@ -282,12 +325,13 @@
     const ok = e.reviews.filter(r => r.correct).length;
     const bad = e.reviews.length - ok;
     const ans = (e.answer && String(e.answer).trim()) ? String(e.answer) : '';
-    const hide = !!(state.selfTest && ans);
+    // 自测模式开：答案遮住，点本题「显示答案」才展开；自测模式关：完全不显示答案
+    const showAns = !!(state.selfTest && ans);
     return `
       ${qFull ? `<div class="exp-q">${qFull}</div>` : ''}
       ${imgList(e).map(s => `<img class="exp-img zoomable" src="${s}" alt=""/>`).join('')}
-      ${ans ? `<div class="exp-ans" data-ans-body="${e.id}"${hide ? ' hidden' : ''}><span class="ga-k">答案：</span>${esc(ans)}</div>` : ''}
-      ${hide ? `<button class="btn-show-ans" type="button" data-ans-btn="${e.id}">先自测 · 显示答案</button>` : ''}
+      ${showAns ? `<div class="exp-ans" data-ans-body="${e.id}" hidden><span class="ga-k">答案：</span>${esc(ans)}</div>
+      <button class="btn-show-ans" type="button" data-ans-btn="${e.id}">显示答案</button>` : ''}
       <div class="exp-meta-row"><span>收录于 ${fmtDate(e.createdAt)}</span><span>做题 ${e.reviews.length} 次 · 正确 ${ok} 次 · 错误 ${bad} 次</span></div>`;
   }
 
@@ -1526,18 +1570,24 @@
   function renderReview() {
     const tab = state.revTab || 'due';
     const sm = sourceMap();
-    const list = revListFor(tab);
-    const dueN = DB.dueReviews().length;
-    const redoN = redoDueList().length;
-    const overdueN = overdueList().length;
-    const starN = starredList().length;
-    const allN = new Set(DB.dueReviews().map(e => e.id).concat(redoDueList().map(e => e.id))).size;
+    const fOn = revFilterActive() > 0;
+    const list = revListFor(tab).filter(matchRevFilter);
+    // 计数跟随筛选：避免「只显示 2 道，标签却写 5」
+    const dueN = DB.dueReviews().filter(matchRevFilter).length;
+    const redoN = redoDueList().filter(matchRevFilter).length;
+    const overdueN = overdueList().filter(matchRevFilter).length;
+    const starN = starredList().filter(matchRevFilter).length;
+    const allN = new Set(DB.dueReviews().filter(matchRevFilter).map(e => e.id)
+      .concat(redoDueList().filter(matchRevFilter).map(e => e.id))).size;
     const mastered = DB.getErrors().filter(e => DB.isMastered(e));
-    const emptyText = tab === 'redo'
-      ? '还没有重练题。去「笔记本」勾选错题点「加入重练」，就会出现在这里。'
-      : (tab === 'overdue' ? '没有逾期的题，节奏保持得很好。'
-        : (tab === 'star' ? '还没有标星的重点题。在卡片或详情页点 ☆ 就能标记。'
-          : (tab === 'all' ? '暂时没有需要练习的题，继续保持！' : '今天没有到期要复习的错题，继续保持！')));
+    const emptyText = fOn
+      ? '当前筛选下没有题，试试放宽条件或点「清除」。'
+      : (tab === 'redo'
+        ? '还没有重练题。去「笔记本」勾选错题点「加入重练」，就会出现在这里。'
+        : (tab === 'overdue' ? '没有逾期的题，节奏保持得很好。'
+          : (tab === 'star' ? '还没有标星的重点题。在卡片或详情页点 ☆ 就能标记。'
+            : (tab === 'all' ? '暂时没有需要练习的题，继续保持！' : '今天没有到期要复习的错题，继续保持！'))));
+    const fChips = revFilterChips();
     const cards = list.map(e => {
       const o = sm.get(e.id) || {};
       const when = o.due ? dueLabel(e) : (o.redo ? '手动加入重练 · 集中练习' : '★ 重点 · 未到期，可提前练');
@@ -1563,10 +1613,15 @@
       <div class="rev-toolbar">
         <div class="rev-count">待复习 <b>${dueN}</b> · 重练 <b>${redoN}</b></div>
         <div class="rev-actions">
+          <button class="btn small ghost" id="revFilterBtn">筛选${fOn ? '·' + revFilterActive() : ''}</button>
           <button class="btn small ghost" id="selfTestBtn">${state.selfTest ? '自测：开' : '自测：关'}</button>
           <button class="btn small" id="toGrade"${list.length ? '' : ' disabled'}>批改</button>
         </div>
       </div>
+      ${fOn ? `<div class="rev-fchips">
+        ${fChips.map(c => `<span class="tag">${esc(c)}</span>`).join('')}
+        <button class="f-clear" id="revFClear">清除筛选 ✕</button>
+      </div>` : ''}
       <div class="seg-tabs" id="revTabs">
         <button data-tab="due" class="${tab === 'due' ? 'on' : ''}">待复习<i>${dueN}</i></button>
         <button data-tab="redo" class="${tab === 'redo' ? 'on' : ''}">重练<i>${redoN}</i></button>
@@ -1579,8 +1634,8 @@
         : (tab === 'overdue' ? '这里只列出到期日早于今天的题，越靠前逾期越久，建议先练。'
           : (tab === 'star' ? '★ 重点是你在卡片上标星的题；未到期的也可在这里提前练，批改后按正常周期推进。'
             : (state.selfTest
-              ? '自测模式已开启：答案默认遮住，先自己回想，点「显示答案」核对，再进批改记录对错。'
-              : '自测模式已关闭：答案直接显示，适合快速核对。')))}</p>
+              ? '自测模式已开启：答案默认遮住，先自己回想，点每题的「显示答案」逐个核对，再进批改记录对错。'
+              : '自测模式已关闭：不显示答案，先独立完成；需要核对时点「自测」开启，再逐题展开答案。')))}</p>
       ${list.length
         ? `<div id="revList">${cards}</div>`
         : `<div class="empty"><span class="em-ico">🌱</span>${emptyText}</div>`}
@@ -1606,11 +1661,18 @@
       toast('已移出重练清单（题库与学习记录不变）');
       renderReview();
     }));
-    // 切换 待复习 / 错题重练 / 全部
+    // 切换 待复习 / 重练 / 逾期 / 重点 / 全部
     $$('#revTabs button').forEach(b => b.addEventListener('click', () => {
       state.revTab = b.dataset.tab;
       renderReview();
     }));
+    // 筛选：科目 / 知识点 / 添加日期 / 到期日期
+    $('#revFilterBtn')?.addEventListener('click', openRevFilter);
+    $('#revFClear')?.addEventListener('click', () => {
+      state.revFilter = { subject: '全部', kpId: null, created: 'all', due: 'all' };
+      renderReview();
+      toast('已清除复习筛选');
+    });
     // 自测模式开关：控制答案是否默认遮住
     $('#selfTestBtn')?.addEventListener('click', () => { state.selfTest = !state.selfTest; renderReview(); });
     // 单题「显示答案」：只展开当前题
@@ -1622,6 +1684,72 @@
     }));
     $('#toGrade')?.addEventListener('click', () => renderGrade(list, renderReview));
     updateRevBadge();
+  }
+
+  /* ---------------- 复习页筛选弹层（科目 / 知识点 / 添加日期 / 到期日期） ---------------- */
+  // 知识点选项：只列当前科目下真正有错题的知识点，并带上数量
+  function revKpChipsHTML(subject, kpId) {
+    const errs = DB.getErrors();
+    const items = DB.getKeywords('kp')
+      .filter(k => subject === '全部' || k.subject === subject)
+      .map(k => ({ id: k.id, name: k.name, n: errs.filter(e => e.kpId === k.id && (subject === '全部' || e.subject === subject)).length }))
+      .filter(x => x.n > 0);
+    return `<span class="kw ${!kpId ? 'active' : ''}" data-v="">不限</span>`
+      + items.map(x => `<span class="kw ${kpId === x.id ? 'active' : ''}" data-v="${x.id}">${esc(x.name)}<span class="cnt">${x.n}</span></span>`).join('');
+  }
+  function openRevFilter() {
+    const tmp = Object.assign({ subject: '全部', kpId: null, created: 'all', due: 'all' }, state.revFilter || {});
+    const errs = DB.getErrors();
+    // 科目列表 = 已定义科目 ∪ 错题里实际出现的科目（避免历史/导入数据选不到）
+    const subs = ['全部', ...new Set([...DB.getSubjects(), ...errs.map(e => e.subject).filter(Boolean)])];
+    const body = openSheet(`
+      <button class="close-x">✕</button>
+      <h3>筛选复习题</h3>
+      <div class="f-row">
+        <div class="f-group"><label>科目</label><div class="kw-box" id="rfSubj">
+          ${subs.map(s => `<span class="kw ${tmp.subject === s ? 'active' : ''}" data-v="${esc(s)}">${esc(s)}<span class="cnt">${s === '全部' ? errs.length : errs.filter(e => e.subject === s).length}</span></span>`).join('')}
+        </div></div>
+        <div class="f-group"><label>知识点</label><div class="kw-box" id="rfKp">${revKpChipsHTML(tmp.subject, tmp.kpId)}</div></div>
+        <div class="f-group"><label>添加日期</label><div class="kw-box" id="rfCreated">
+          ${REV_CREATED.map(o => `<span class="kw ${tmp.created === o[0] ? 'active' : ''}" data-v="${o[0]}">${o[1]}</span>`).join('')}
+        </div></div>
+        <div class="f-group"><label>到期日期</label><div class="kw-box" id="rfDue">
+          ${REV_DUE.map(o => `<span class="kw ${tmp.due === o[0] ? 'active' : ''}" data-v="${o[0]}">${o[1]}</span>`).join('')}
+        </div></div>
+      </div>
+      <p class="f-hint">只影响复习页显示哪些题，不改动任何做题记录；筛完可直接点「批改」整组练习。</p>
+      <div class="btn-row">
+        <button class="btn ghost" id="rfReset">重置</button>
+        <button class="btn" id="rfApply">应用</button>
+      </div>`);
+    const bindBox = (id, key, after) => {
+      body.querySelectorAll('#' + id + ' .kw').forEach(w => w.addEventListener('click', () => {
+        body.querySelectorAll('#' + id + ' .kw').forEach(y => y.classList.remove('active'));
+        w.classList.add('active');
+        tmp[key] = (w.dataset.v === '') ? null : w.dataset.v;
+        if (after) after();
+      }));
+    };
+    bindBox('rfSubj', 'subject', () => {
+      // 科目变了，知识点跟着换一批，并清空已选知识点
+      tmp.kpId = null;
+      const kpBox = body.querySelector('#rfKp');
+      kpBox.innerHTML = revKpChipsHTML(tmp.subject, null);
+      bindBox('rfKp', 'kpId');
+    });
+    bindBox('rfKp', 'kpId');
+    bindBox('rfCreated', 'created');
+    bindBox('rfDue', 'due');
+    body.querySelector('#rfReset').addEventListener('click', () => {
+      state.revFilter = { subject: '全部', kpId: null, created: 'all', due: 'all' };
+      closeSheet(); renderReview(); toast('已重置筛选');
+    });
+    body.querySelector('#rfApply').addEventListener('click', () => {
+      state.revFilter = tmp;
+      closeSheet(); renderReview();
+      const n = revFilterActive();
+      toast(n ? `已按 ${n} 个条件筛选` : '已显示全部题目');
+    });
   }
 
   // 批改 / 重练模式：题目折叠展示、答案全部显示，逐题勾选「对 / 错」后统一记录。

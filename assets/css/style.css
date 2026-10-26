@@ -687,3 +687,14 @@ body {
 .plan-details summary::before { content: '▸ '; }
 .plan-details[open] summary::before { content: '▾ '; }
 .plan-details p { margin: 6px 0 0; line-height: 1.7; }
+
+/* ============ 复习页筛选 ============ */
+.rev-toolbar { flex-wrap: wrap; gap: 8px 10px; }
+.rev-actions { flex-wrap: wrap; justify-content: flex-end; }
+.rev-fchips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 0 2px 10px; }
+.rev-fchips .tag { background: var(--primary-soft); color: var(--primary-deep); }
+.f-clear {
+  border: 0; background: none; font-family: var(--font); font-size: 12px;
+  color: var(--ink-3); cursor: pointer; padding: 3px 2px; text-decoration: underline;
+}
+.f-hint { font-size: 12px; color: var(--ink-3); line-height: 1.6; margin: 10px 2px 0; }
