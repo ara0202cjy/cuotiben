@@ -484,15 +484,31 @@ body {
   .pf-head { border-bottom: 2px solid #5d9b85; padding-bottom: 8px; margin-bottom: 14px; }
   .pf-title { margin: 0; font-size: 20px; color: #3a5b4f; }
   .pf-sub { margin: 4px 0 0; color: #777; font-size: 12px; }
-  .pf-item { page-break-inside: avoid; break-inside: avoid; border: 1px solid #e2e8e4; border-radius: 10px; padding: 14px 16px; margin-bottom: 16px; min-height: 48vh; }
+  .pf-item { page-break-inside: avoid; break-inside: avoid; border: 1px solid #e2e8e4; border-radius: 10px; padding: 14px 16px; margin-bottom: 16px; }
   .pf-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
   .pf-no { font-weight: 700; color: #3a5b4f; }
   .pf-q { font-size: 16px; white-space: pre-wrap; margin: 4px 0 8px; }
   .pf-img { max-width: 100%; border-radius: 6px; margin: 6px 0; }
   .pf-write {
-    min-height: 90mm; border: 1px dashed #cfd8d2; border-radius: 8px; margin-top: 10px;
+    min-height: 45mm; border: 1px dashed #cfd8d2; border-radius: 8px; margin-top: 10px;
     color: #b6c2bb; display: flex; align-items: flex-start; padding: 8px 10px;
   }
+  /* 紧凑连排：不留作答区，题目间只用细分隔线，尽量多题/页 */
+  .pf-mode-compact .pf-item {
+    border: 0; border-bottom: 1px dashed #dfe7e2; border-radius: 0;
+    padding: 7px 0 9px; margin: 0;
+  }
+  .pf-mode-compact .pf-meta { margin-bottom: 3px; gap: 6px; }
+  .pf-mode-compact .pf-q { font-size: 13.5px; margin: 2px 0 4px; }
+  .pf-mode-compact .pf-img { max-height: 52mm; width: auto; object-fit: contain; }
+  .pf-mode-compact .pf-item .tag { font-size: 10px; padding: 1px 6px; }
+  /* 留白作答：每题一个作答区，但不再占半页 */
+  .pf-mode-write .pf-item { padding: 10px 12px; margin-bottom: 10px; }
+  .pf-mode-write .pf-q { font-size: 14px; }
+  .pf-mode-write .pf-write { min-height: 34mm; }
+  /* 一题一页：保持原来的宽松版式 */
+  .pf-mode-page .pf-item { min-height: 48vh; }
+  .pf-mode-page .pf-write { min-height: 90mm; }
 }
 
 /* ============ 编辑图标（错题本 / 复习列表 / 最近错题） ============ */
@@ -713,3 +729,34 @@ body {
   background: var(--bg); padding: 12px 0 8px; margin-top: 4px;
   box-shadow: 0 -10px 14px -10px rgba(95, 140, 120, .35);
 }
+
+/* ============ 首页：今日复习概览 ============ */
+.today-detail { padding: 14px 16px; }
+.td-h { margin: 0 0 8px; font-size: 13.5px; font-weight: 700; color: var(--ink); }
+.td-h span { font-weight: 400; font-size: 11.5px; color: var(--ink-3); margin-left: 6px; }
+.td-row { display: flex; gap: 10px; padding: 7px 0; border-top: 1px dashed var(--line); }
+.td-row:first-of-type { border-top: 0; padding-top: 2px; }
+.td-k { flex: 0 0 44px; font-size: 12px; color: var(--ink-3); padding-top: 3px; }
+.td-v { flex: 1 1 auto; display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.td-chip { font-size: 12px; background: var(--surface-2); color: var(--ink-2); border-radius: 9px; padding: 3px 8px; }
+.td-chip b { color: var(--ink); margin-left: 4px; }
+.td-chip.td-more { background: transparent; color: var(--ink-3); padding-left: 0; }
+.td-none { font-size: 12px; color: var(--ink-3); }
+.td-nums { gap: 2px 14px; font-size: 12px; color: var(--ink-2); align-items: baseline; }
+.td-nums b { color: var(--ink); font-size: 13px; }
+
+/* ============ 紧凑按钮（笔记本工具栏） ============ */
+.btn.xs {
+  width: auto; padding: 6px 10px; font-size: 12.5px; font-weight: 600;
+  border-radius: 9px; box-shadow: none; letter-spacing: .2px;
+}
+.btn.xs:active { transform: scale(.97); }
+.nb-tools { gap: 6px; }
+.nb-row1 .btn.xs, .nb-act .btn.xs { padding: 6px 8px; font-size: 12.5px; }
+.nb-selcnt { font-size: 11.5px; }
+
+/* ============ 导出：排版 / 排序选项 ============ */
+.exp-opts { margin-bottom: 12px; }
+.exp-opt-row { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px; }
+.exp-opt-k { flex: 0 0 34px; font-size: 12px; color: var(--ink-3); padding-top: 7px; }
+.exp-opt-row .kw-box { flex: 1 1 auto; }

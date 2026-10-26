@@ -36,7 +36,7 @@
     next.onclick = ev => { ev.stopPropagation(); show(idx + 1); };
   }
 
-  const state = { view: 'home', subject: '全部', filter: {}, expanded: {}, mastExpanded: {}, selectMode: false, selected: new Set(), mineFilter: { subject: '全部', kpId: null, srcId: null }, mineStatOpen: true, search: '', sort: 'created', selfTest: false, revTab: 'due', revFilter: { subjects: [], kpIds: [], mastery: [], wrong: [], created: [], due: [] } };
+  const state = { view: 'home', subject: '全部', filter: emptyBookFilter(), expanded: {}, mastExpanded: {}, selectMode: false, selected: new Set(), mineFilter: { subject: '全部', kpId: null, srcId: null }, mineStatOpen: true, search: '', sort: 'created', selfTest: false, revTab: 'due', revFilter: { subjects: [], kpIds: [], mastery: [], wrong: [], created: [], due: [] } };
   // 练习队列（选题重练）已持久化到账户存储并随云端同步，统一经 DB 读写（不再仅存内存）
   const getPractice = () => DB.getPracticeSession() || [];
   const setPractice = arr => DB.setPracticeSession(arr);
@@ -292,10 +292,21 @@
     // 学科构成：一眼看出今天哪科最多
     const bySubj = {};
     due.forEach(e => { bySubj[e.subject] = (bySubj[e.subject] || 0) + 1; });
-    const subjLine = Object.keys(bySubj)
-      .sort((a, b) => bySubj[b] - bySubj[a])
-      .map(s => `${esc(s)} <b>${bySubj[s]}</b>`).join(' · ');
     const allDone = !revCount && !redoDue.length;
+    // —— 待复习题目的基础数据：科目 / 知识点 / 练习与答错次数 / 题型 ——
+    const subjChips = Object.keys(bySubj)
+      .sort((a, b) => bySubj[b] - bySubj[a])
+      .map(s => `<span class="td-chip">${esc(s)}<b>${bySubj[s]}</b></span>`).join('');
+    const kpMap = new Map();
+    due.forEach(e => { const k = e.kpId || ''; kpMap.set(k, (kpMap.get(k) || 0) + 1); });
+    const kpArr = [...kpMap.entries()].sort((a, b) => b[1] - a[1]);
+    const kpChips = kpArr.slice(0, 6)
+      .map(([id, n]) => `<span class="td-chip">${esc(id ? (kwName(id) || '已删除知识点') : '未归知识点')}<b>${n}</b></span>`).join('')
+      + (kpArr.length > 6 ? `<span class="td-chip td-more">等 ${kpArr.length} 个</span>` : '');
+    const practiced = due.reduce((s, e) => s + (e.reviews || []).length, 0);
+    const wronged = due.reduce((s, e) => s + wrongCount(e), 0);
+    const avgWrong = due.length ? (wronged / due.length).toFixed(1) : '0.0';
+    const drillN = due.filter(e => DB.getRType(e) === 'drill').length;
 
     $('#view').innerHTML = `
       <div class="hero compact">
@@ -319,7 +330,6 @@
             <p class="today-sub">${revCount
               ? (overdueN ? `其中已逾期 <b>${overdueN}</b> 道，建议先练` : '都在今天到期，按顺序练即可')
               : (doneN ? '今天的都练完了，明天见 🌿' : '今天没有到期要复习的错题 🎉')}</p>
-            ${subjLine ? `<p class="today-subj">${subjLine}</p>` : ''}
           </div>
         </div>
         <div class="today-mini">
@@ -334,7 +344,35 @@
         ${errs.length === 0
           ? '<p class="today-done" style="color:var(--ink-3)">还没有错题，点底部「＋」录第一道吧</p>'
           : (allDone ? '<p class="today-done">今日已全部完成 ✓ 明天继续保持</p>' : '')}
-      </div>`;
+      </div>
+
+      ${revCount ? `
+      <div class="card today-detail">
+        <p class="td-h">今日复习概览 <span>以下只统计到期要复习的 ${revCount} 道</span></p>
+        <div class="td-row">
+          <span class="td-k">科目</span>
+          <div class="td-v">${subjChips}</div>
+        </div>
+        <div class="td-row">
+          <span class="td-k">知识点</span>
+          <div class="td-v">${kpChips || '<span class="td-none">未归知识点</span>'}</div>
+        </div>
+        <div class="td-row">
+          <span class="td-k">练习</span>
+          <div class="td-v td-nums">
+            <span>累计练习 <b>${practiced}</b> 次</span>
+            <span>累计答错 <b>${wronged}</b> 次</span>
+            <span>平均 <b>${avgWrong}</b> 次/题</span>
+          </div>
+        </div>
+        <div class="td-row">
+          <span class="td-k">题型</span>
+          <div class="td-v td-nums">
+            <span>记忆型 <b>${drillN}</b> 道</span>
+            <span>稳定型 <b>${revCount - drillN}</b> 道</span>
+          </div>
+        </div>
+      </div>` : ''}`;
 
     // 两个入口都进复习页，只是默认落在不同的切换标签上
     $('#startToday').addEventListener('click', () => { state.revTab = revCount ? 'due' : (redoDue.length ? 'redo' : 'due'); setView('review'); });
@@ -735,7 +773,10 @@
     const subjects = DB.getSubjects();
     const expanded = state.expanded || {};
     const f = state.filter;
-    const hasFilter = !!(f.kpId || f.srcId || f.mastery || f.wrong || f.from || f.to || (state.subject && state.subject !== '全部') || (state.search && state.search.trim()));
+    const mSel = f.mastery || [];
+    const hasFilter = !!((f.kpIds || []).length || (f.srcIds || []).length || mSel.length || (f.wrong || []).length
+      || (f.due || []).length || f.from || f.to
+      || (state.subject && state.subject !== '全部') || (state.search && state.search.trim()));
     const total = DB.getErrors().length;
     const allOpen = subjects.length > 0 && subjects.every(s => expanded[s]);
 
@@ -747,10 +788,10 @@
         <input id="nbSearch" type="search" placeholder="搜索题目 / 答案 / 拼音 / 知识点…" value="${esc(state.search || '')}" />
       </div>
       <div class="nb-tools nb-row1">
-        <button class="btn ghost" id="openFilter">筛选${filterLabel()}</button>
-        <button class="btn ghost" id="toggleSelect">${state.selectMode ? '完成' : '勾选'}</button>
-        <button class="btn ghost" id="selectAll">全选</button>
-        <button class="btn ghost" id="toggleAll">${allOpen ? '收起' : '展开'}</button>
+        <button class="btn ghost xs" id="openFilter">筛选${filterLabel()}</button>
+        <button class="btn ghost xs" id="toggleSelect">${state.selectMode ? '完成' : '勾选'}</button>
+        <button class="btn ghost xs" id="selectAll">全选</button>
+        <button class="btn ghost xs" id="toggleAll">${allOpen ? '收起' : '展开'}</button>
       </div>
       <div class="nb-sort">
         <span class="sort-lab">排序</span>
@@ -764,13 +805,13 @@
       ${state.selectMode ? `
       <p class="nb-selcnt">已选 ${state.selected.size} 道</p>
       <div class="nb-tools nb-act">
-        <button class="btn" id="repSel">加入重练</button>
-        <button class="btn" id="expSel">导出PDF</button>
-        <button class="btn ghost nb-danger" id="delSel">删除选中</button>
+        <button class="btn xs" id="repSel">加入重练</button>
+        <button class="btn xs" id="expSel">导出PDF</button>
+        <button class="btn ghost nb-danger xs" id="delSel">删除选中</button>
       </div>
       <div class="nb-tools nb-act" style="margin-top:8px">
-        <button class="btn ghost" id="batchEdit">批量改属性</button>
-        <button class="btn ghost" id="selNone">清空选择</button>
+        <button class="btn ghost xs" id="batchEdit">批量改属性</button>
+        <button class="btn ghost xs" id="selNone">清空选择</button>
       </div>` : ''}
       <p class="list-hint">点开任一错题本可预览内容 · 共 ${total} 道 · 点 ✕ 可删减${hasFilter ? '（已按筛选隐藏无匹配学科）' : ''}</p>
       ${showSubjects.length ? showSubjects.map(s => {
@@ -779,7 +820,7 @@
         const isOpen = !!expanded[s];
         const allSel = errs.length > 0 && errs.every(e => state.selected.has(e.id));
         // 已掌握题单独折叠：仅在「未显式只看已掌握」时，将已掌握题收进折叠卡片，避免与待练题混在一起
-        const showAllErrs = f.mastery === 'known';
+        const showAllErrs = mSel.length === 1 && mSel[0] === 'known';
         const unmastered = showAllErrs ? [] : errs.filter(e => !DB.isMastered(e));
         const mastered = errs.filter(e => DB.isMastered(e));
         const mainErrs = showAllErrs ? errs : unmastered;
@@ -994,43 +1035,66 @@
   }
   // 错题次数 = 该错题在复习中被判错的次数（reviews 中 correct 为 false 的条数）
   function wrongCount(e) { return (e.reviews || []).filter(r => !r.correct).length; }
-  // 按「错题次数」筛选：0 / 1 / 2 / ≥3
-  function applyWrongFilter(list, f) {
-    if (!f || !f.wrong) return list;
-    return list.filter(e => {
+  // 笔记本筛选默认值（全部不限）
+  function emptyBookFilter() { return { kpIds: [], srcIds: [], mastery: [], wrong: [], due: [], from: null, to: null }; }
+  // 笔记本筛选：同组多选取「或」，组间取「且」
+  function matchBookFilter(e) {
+    const f = state.filter || {};
+    const kp = f.kpIds || [], src = f.srcIds || [], ma = f.mastery || [], wr = f.wrong || [], du = f.due || [];
+    if (kp.length && !kp.includes(e.kpId)) return false;
+    if (src.length && !src.includes(e.srcId)) return false;
+    if (ma.length && !ma.includes(DB.isMastered(e) ? 'known' : 'unknown')) return false;
+    if (wr.length) {
       const w = wrongCount(e);
-      if (f.wrong === '0') return w === 0;
-      if (f.wrong === '1') return w === 1;
-      if (f.wrong === '2') return w === 2;
-      if (f.wrong === '3p') return w >= 3;
-      return true;
-    });
+      const hit = wr.some(k => k === '0' ? w === 0 : k === '1' ? w === 1 : k === '2' ? w === 2 : w >= 3);
+      if (!hit) return false;
+    }
+    // 添加日期：按录入日期（YYYY-MM-DD，含边界）
+    if (f.from || f.to) {
+      const day = (e.createdAt || '').slice(0, 10);
+      if (f.from && day < f.from) return false;
+      if (f.to && day > f.to) return false;
+    }
+    // 到期日期：按下次推送时间划段
+    if (du.length) {
+      const t = DB.nextDueDate(e), t0 = startOfToday(), DAY = 86400000;
+      const hit = du.some(k => k === 'overdue' ? t < t0
+        : k === 'today' ? (t >= t0 && t < t0 + DAY)
+          : k === 'week' ? (t >= t0 && t < t0 + 7 * DAY) : t >= t0 + 7 * DAY);
+      if (!hit) return false;
+    }
+    return true;
+  }
+  // 多选 chip 交互：点选切换，「不限」清空该组
+  function bindChipMulti(box, arr, after) {
+    if (!box) return;
+    const anyChip = box.querySelector('.kw[data-v=""]');
+    box.querySelectorAll('.kw').forEach(w => w.addEventListener('click', () => {
+      const v = w.dataset.v;
+      if (v === '') {
+        arr.length = 0;
+        box.querySelectorAll('.kw').forEach(y => y.classList.remove('active'));
+        w.classList.add('active');
+      } else {
+        const i = arr.indexOf(v);
+        if (i >= 0) { arr.splice(i, 1); w.classList.remove('active'); }
+        else { arr.push(v); w.classList.add('active'); }
+        if (anyChip) anyChip.classList.toggle('active', arr.length === 0);
+      }
+      if (after) after();
+    }));
   }
   function filterLabel() {
-    const f = state.filter; let n = 0;
+    const f = state.filter || {};
+    let n = 0;
     if (state.subject && state.subject !== '全部') n++;
-    if (f.kpId) n++; if (f.srcId) n++; if (f.mastery) n++;
-    if (f.wrong) n++;
+    ['kpIds', 'srcIds', 'mastery', 'wrong', 'due'].forEach(k => { if ((f[k] || []).length) n++; });
     if (f.from || f.to) n++;
     return n ? `（${n}）` : '';
   }
   // 取某学科在当前筛选下匹配的错题（笔记本渲染与勾选共用）
   function listSubjectErrs(s) {
-    const f = state.filter;
-    const hasFilter = !!(f.kpId || f.srcId || f.mastery || f.wrong || f.from || f.to || (state.subject && state.subject !== '全部'));
-    let list = DB.getErrors(Object.assign({ subject: s }, (f.kpId || f.srcId || f.mastery) ? f : {}));
-    // 起止时间筛选：按录入日期 createdAt 的 YYYY-MM-DD 比较，含边界（from/to 为空表示不限）
-    if (f.from || f.to) {
-      list = list.filter(e => {
-        const day = (e.createdAt || '').slice(0, 10);
-        if (f.from && day < f.from) return false;
-        if (f.to && day > f.to) return false;
-        return true;
-      });
-    }
-    // 错题次数筛选：0 / 1 / 2 / ≥3
-    list = applyWrongFilter(list, f);
-    return list;
+    return DB.getErrors({ subject: s }).filter(matchBookFilter);
   }
 
   /* ---------------- 高频词：按错题中的使用次数排序，取前 N 个 ---------------- */
@@ -1056,108 +1120,82 @@
 
   /* ---------------- 筛选（可锁定某一错题本） ---------------- */
   function openFilter(lockSubject) {
-    const f = state.filter;
-    const subjects = lockSubject ? [lockSubject] : ['全部', ...DB.getSubjects()];
+    const src = state.filter || {};
+    const tmp = emptyBookFilter();
+    ['kpIds', 'srcIds', 'mastery', 'wrong', 'due'].forEach(k => { tmp[k] = [...(src[k] || [])]; });
+    tmp.from = src.from || ''; tmp.to = src.to || '';
     let selSubj = lockSubject || state.subject || '全部';
-    // 知识点/来源跟随所选学科（二级联动）：全部=不按学科过滤；显示全部已定义项（无错题的会被自动清理）
-    const kpTop = topKeywords('kp', selSubj === '全部' ? null : selSubj, f.kpId, 9999);
-    const srcTop = topKeywords('src', selSubj === '全部' ? null : selSubj, f.srcId, 9999);
+    const allErrs = DB.getErrors();
+    const subs = ['全部', ...new Set([...DB.getSubjects(), ...allErrs.map(e => e.subject).filter(Boolean)])];
     const body = openSheet(`
       <button class="close-x">✕</button>
       <h3>${lockSubject ? '筛选「' + lockSubject + '」本内容' : '筛选错题'}</h3>
-      <div class="f-row">
-        ${lockSubject ? '' : `<div class="f-group"><label>学科</label><div class="kw-box" id="fSubj">
-          ${subjects.map(s => `<span class="kw ${state.subject === s ? 'active' : ''}" data-subj="${esc(s)}">${esc(s)}</span>`).join('')}
+      <p class="f-hint" style="margin:0 2px 10px">同一组内可多选（满足任一即可），不同组之间同时生效。</p>
+      <div class="f-row f-col">
+        ${lockSubject ? '' : `<div class="f-group"><label>学科（单选，定位到某本）</label><div class="kw-box" id="fSubj">
+          ${subs.map(s => `<span class="kw ${selSubj === s ? 'active' : ''}" data-v="${esc(s)}">${esc(s)}</span>`).join('')}
         </div></div>`}
-        <div class="f-group"><label>知识点</label><div class="kw-box" id="fKp">
-          <span class="kw ${!f.kpId ? 'active' : ''}" data-kp="">不限</span>
-          ${kpTop.map(k => `<span class="kw ${f.kpId === k.id ? 'active' : ''}" data-kp="${k.id}">${esc(k.name)}<span class="cnt">${k.count}</span></span>`).join('')}
+        <div class="f-group"><label>知识点（可多选）</label><div class="kw-box" id="fKp"></div></div>
+        <div class="f-group"><label>来源（可多选）</label><div class="kw-box" id="fSrc"></div></div>
+        <div class="f-group"><label>掌握程度（可多选）</label><div class="kw-box" id="fM">
+          <span class="kw ${tmp.mastery.length ? '' : 'active'}" data-v="">不限</span>
+          ${Object.values(DB.MASTERY).map(m => `<span class="kw ${tmp.mastery.includes(m.key) ? 'active' : ''}" data-v="${m.key}">${m.label}</span>`).join('')}
         </div></div>
-        <div class="f-group"><label>来源</label><div class="kw-box" id="fSrc">
-          <span class="kw ${!f.srcId ? 'active' : ''}" data-src="">不限</span>
-          ${srcTop.map(k => `<span class="kw ${f.srcId === k.id ? 'active' : ''}" data-src="${k.id}">${esc(k.name)}<span class="cnt">${k.count}</span></span>`).join('')}
+        <div class="f-group"><label>错误次数（可多选）</label><div class="kw-box" id="fW">
+          <span class="kw ${tmp.wrong.length ? '' : 'active'}" data-v="">不限</span>
+          ${[['0', '0 次'], ['1', '1 次'], ['2', '2 次'], ['3p', '≥3 次']].map(o => `<span class="kw ${tmp.wrong.includes(o[0]) ? 'active' : ''}" data-v="${o[0]}">${o[1]}</span>`).join('')}
         </div></div>
-        <div class="f-group"><label>掌握</label><div class="kw-box" id="fM">
-          <span class="kw ${!f.mastery ? 'active' : ''}" data-m="">不限</span>
-          ${Object.values(DB.MASTERY).map(m => `<span class="kw ${f.mastery === m.key ? 'active' : ''}" data-m="${m.key}">${m.label}</span>`).join('')}
+        <div class="f-group"><label>到期日期（可多选）</label><div class="kw-box" id="fD">
+          <span class="kw ${tmp.due.length ? '' : 'active'}" data-v="">不限</span>
+          ${REV_DUE.map(o => `<span class="kw ${tmp.due.includes(o[0]) ? 'active' : ''}" data-v="${o[0]}">${o[1]}</span>`).join('')}
         </div></div>
-        <div class="f-group"><label>错题次数</label><div class="kw-box" id="fW">
-          <span class="kw ${!f.wrong ? 'active' : ''}" data-w="">不限</span>
-          <span class="kw ${f.wrong === '0' ? 'active' : ''}" data-w="0">0 次</span>
-          <span class="kw ${f.wrong === '1' ? 'active' : ''}" data-w="1">1 次</span>
-          <span class="kw ${f.wrong === '2' ? 'active' : ''}" data-w="2">2 次</span>
-          <span class="kw ${f.wrong === '3p' ? 'active' : ''}" data-w="3p">≥3 次</span>
-        </div></div>
-        <div class="f-group f-date"><label>起止时间（按录入日期）</label>
+        <div class="f-group"><label>添加日期（按录入日期）</label>
           <div class="date-row">
-            <input type="date" id="fFrom" class="date-input" value="${esc(f.from || '')}" />
+            <input type="date" id="fFrom" class="date-input" value="${esc(tmp.from || '')}" />
             <span class="date-sep">至</span>
-            <input type="date" id="fTo" class="date-input" value="${esc(f.to || '')}" />
+            <input type="date" id="fTo" class="date-input" value="${esc(tmp.to || '')}" />
           </div>
         </div>
       </div>
-      <div class="btn-row">
+      <div class="btn-row f-actions">
         <button class="btn ghost" id="fReset">重置</button>
         <button class="btn" id="fApply">应用</button>
       </div>`);
+    // 知识点 / 来源：跟随所选学科，多选
+    const fillKw = (boxId, type, key) => {
+      const top = topKeywords(type, selSubj === '全部' ? null : selSubj, null, 9999);
+      const box = body.querySelector('#' + boxId);
+      box.innerHTML = `<span class="kw ${tmp[key].length ? '' : 'active'}" data-v="">不限</span>`
+        + top.map(k => `<span class="kw ${tmp[key].includes(k.id) ? 'active' : ''}" data-v="${k.id}">${esc(k.name)}<span class="cnt">${k.count}</span></span>`).join('');
+      bindChipMulti(box, tmp[key]);
+    };
+    fillKw('fKp', 'kp', 'kpIds');
+    fillKw('fSrc', 'src', 'srcIds');
+    bindChipMulti(body.querySelector('#fM'), tmp.mastery);
+    bindChipMulti(body.querySelector('#fW'), tmp.wrong);
+    bindChipMulti(body.querySelector('#fD'), tmp.due);
     if (!lockSubject) {
-      // 按所选学科重新填充知识点/来源（二级联动），并清空已选的 KP/来源
-      const fillKp = (subj, keepId) => {
-        const top = topKeywords('kp', subj === '全部' ? null : subj, keepId || null, 9999);
-        const box = document.getElementById('fKp');
-        box.innerHTML = `<span class="kw ${!keepId ? 'active' : ''}" data-kp="">不限</span>`
-          + top.map(k => `<span class="kw ${keepId === k.id ? 'active' : ''}" data-kp="${k.id}">${esc(k.name)}<span class="cnt">${k.count}</span></span>`).join('');
-        box.querySelectorAll('.kw').forEach(w => w.addEventListener('click', () => {
-          box.querySelectorAll('.kw').forEach(y => y.classList.remove('active')); w.classList.add('active');
-        }));
-      };
-      const fillSrc = (subj, keepId) => {
-        const top = topKeywords('src', subj === '全部' ? null : subj, keepId || null, 9999);
-        const box = document.getElementById('fSrc');
-        box.innerHTML = `<span class="kw ${!keepId ? 'active' : ''}" data-src="">不限</span>`
-          + top.map(k => `<span class="kw ${keepId === k.id ? 'active' : ''}" data-src="${k.id}">${esc(k.name)}<span class="cnt">${k.count}</span></span>`).join('');
-        box.querySelectorAll('.kw').forEach(w => w.addEventListener('click', () => {
-          box.querySelectorAll('.kw').forEach(y => y.classList.remove('active')); w.classList.add('active');
-        }));
-      };
       body.querySelectorAll('#fSubj .kw').forEach(x => x.addEventListener('click', () => {
         body.querySelectorAll('#fSubj .kw').forEach(y => y.classList.remove('active'));
         x.classList.add('active');
-        selSubj = x.dataset.subj;
-        fillKp(selSubj, null); fillSrc(selSubj, null);
+        selSubj = x.dataset.v;
+        tmp.kpIds = []; tmp.srcIds = [];
+        fillKw('fKp', 'kp', 'kpIds');
+        fillKw('fSrc', 'src', 'srcIds');
       }));
     }
-    body.querySelectorAll('#fKp .kw').forEach(x => x.addEventListener('click', () => {
-      body.querySelectorAll('#fKp .kw').forEach(y => y.classList.remove('active'));
-      x.classList.add('active');
-    }));
-    body.querySelectorAll('#fSrc .kw').forEach(x => x.addEventListener('click', () => {
-      body.querySelectorAll('#fSrc .kw').forEach(y => y.classList.remove('active'));
-      x.classList.add('active');
-    }));
-    body.querySelectorAll('#fM .kw').forEach(x => x.addEventListener('click', () => {
-      body.querySelectorAll('#fM .kw').forEach(y => y.classList.remove('active'));
-      x.classList.add('active');
-    }));
-    body.querySelectorAll('#fW .kw').forEach(x => x.addEventListener('click', () => {
-      body.querySelectorAll('#fW .kw').forEach(y => y.classList.remove('active'));
-      x.classList.add('active');
-    }));
     $('#fReset').addEventListener('click', () => {
-      state.subject = lockSubject || '全部'; state.filter = {};
+      state.subject = lockSubject || '全部';
+      state.filter = emptyBookFilter();
       if (lockSubject) state.expanded[lockSubject] = true;
       closeSheet(); renderList();
     });
     $('#fApply').addEventListener('click', () => {
-      const subj = lockSubject || (body.querySelector('#fSubj .active')?.dataset.subj || '全部');
-      const kp = body.querySelector('#fKp .active')?.dataset.kp || '';
-      const src = body.querySelector('#fSrc .active')?.dataset.src || '';
-      const m = body.querySelector('#fM .active')?.dataset.m || '';
-      const w = body.querySelector('#fW .active')?.dataset.w || '';
-      const from = body.querySelector('#fFrom')?.value || '';
-      const to = body.querySelector('#fTo')?.value || '';
+      const subj = lockSubject || (body.querySelector('#fSubj .active')?.dataset.v || '全部');
+      tmp.from = body.querySelector('#fFrom')?.value || null;
+      tmp.to = body.querySelector('#fTo')?.value || null;
       state.subject = subj;
-      state.filter = { kpId: kp || null, srcId: src || null, mastery: m || null, wrong: w || null, from: from || null, to: to || null };
+      state.filter = tmp;
       if (lockSubject) state.expanded[lockSubject] = true;
       closeSheet(); renderList();
     });
@@ -2304,21 +2342,31 @@
       const all = DB.getErrors();
       list = all.filter(e => ids.includes(e.id));
     } else {
-      list = DB.getErrors(Object.assign(
-        {}, state.subject !== '全部' ? { subject: state.subject } : {}, state.filter
-      ));
-      list = applyWrongFilter(list, state.filter);   // 错题次数筛选（DB.getErrors 不识别该字段，单独后置）
+      list = DB.getErrors(state.subject !== '全部' ? { subject: state.subject } : {}).filter(matchBookFilter);
     }
     if (!list.length) { toast('当前没有可导出的错题'); return; }
+    let expMode = 'compact';   // compact 紧凑连排 / write 留白作答 / page 一题一页
+    let expSort = 'pick';      // pick 勾选顺序 / subject 按科目分组
     const body = openSheet(`
       <button class="close-x">✕</button>
       <h3>选择要导出的错题</h3>
-      <p style="font-size:12px;color:var(--ink-2);margin:-4px 0 12px">已按当前筛选列出共 ${list.length} 道，勾选需要的题目后导出为 A4 PDF（默认全选）。</p>
-      <div class="btn-row" style="margin-bottom:10px">
-        <button class="btn ghost" id="expAll">全选</button>
-        <button class="btn ghost" id="expNone">全不选</button>
+      <p class="f-hint" style="margin:-4px 2px 12px">已按当前筛选列出共 ${list.length} 道，勾选后导出为 A4 PDF。</p>
+      <div class="exp-opts">
+        <div class="exp-opt-row"><span class="exp-opt-k">排版</span><div class="kw-box" id="expMode">
+          <span class="kw active" data-v="compact">紧凑连排</span>
+          <span class="kw" data-v="write">留白作答</span>
+          <span class="kw" data-v="page">一题一页</span>
+        </div></div>
+        <div class="exp-opt-row"><span class="exp-opt-k">排序</span><div class="kw-box" id="expSort">
+          <span class="kw active" data-v="pick">勾选顺序</span>
+          <span class="kw" data-v="subject">按科目分组</span>
+        </div></div>
       </div>
-      <div id="expList" style="max-height:46vh;overflow:auto">
+      <div class="btn-row" style="margin-bottom:10px">
+        <button class="btn ghost xs" id="expAll">全选</button>
+        <button class="btn ghost xs" id="expNone">全不选</button>
+      </div>
+      <div id="expList" style="max-height:42vh;overflow:auto">
         ${list.map(e => {
           const q = (isDictError(e) ? (e.pinyin || e.text || '') : (e.text || '')).slice(0, 40);
           return `
@@ -2329,6 +2377,17 @@
         }).join('')}
       </div>
       <button class="btn" id="expGo" style="margin-top:14px">导出选中（<span id="expCnt">${list.length}</span>）</button>`);
+    // 排版 / 排序：单选 chip
+    const bindSingle = (boxId, onPick) => {
+      const box = body.querySelector('#' + boxId);
+      box.querySelectorAll('.kw').forEach(w => w.addEventListener('click', () => {
+        box.querySelectorAll('.kw').forEach(y => y.classList.remove('active'));
+        w.classList.add('active');
+        onPick(w.dataset.v);
+      }));
+    };
+    bindSingle('expMode', v => { expMode = v; });
+    bindSingle('expSort', v => { expSort = v; });
     const syncCnt = () => { $('#expCnt').textContent = body.querySelectorAll('.exp-chk:checked').length; };
     body.querySelectorAll('.exp-chk').forEach(c => c.addEventListener('change', syncCnt));
     $('#expAll').addEventListener('click', () => { body.querySelectorAll('.exp-chk').forEach(c => (c.checked = true)); syncCnt(); });
@@ -2338,24 +2397,36 @@
       if (!ids.length) { toast('请至少勾选一道题'); return; }
       const sel = list.filter(e => ids.includes(e.id));
       closeSheet();
-      exportPDF(sel);
+      exportPDF(sel, expMode, expSort);
     });
   }
 
-  // 第二步：生成 A4 打印区（语文/英语不预留作答位；基本 2 题/页，长题 1 题/页）
-  function exportPDF(list) {
+  // 第二步：生成 A4 打印区
+  // mode: compact=紧凑连排（无作答区，多题/页）/ write=每题留白作答 / page=一题一页
+  // sort: pick=按勾选顺序 / subject=按科目分组
+  function exportPDF(list, mode, sort) {
     if (!list.length) { toast('没有可导出的错题'); return; }
+    mode = mode || 'compact';
+    const arr = list.slice();
+    if (sort === 'subject') {
+      const order = DB.getSubjects();
+      arr.sort((a, b) => {
+        const ia = order.indexOf(a.subject), ib = order.indexOf(b.subject);
+        return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib);
+      });
+    }
+    const reserve = mode === 'write' || mode === 'page';
+    const modeName = { compact: '紧凑连排', write: '留白作答', page: '一题一页' }[mode] || '紧凑连排';
     const pf = $('#printArea');
     pf.innerHTML = `
-      <div class="pf-doc">
+      <div class="pf-doc pf-mode-${mode}">
         <div class="pf-head">
           <h1 class="pf-title">错题练习卷</h1>
-          <p class="pf-sub">共 ${list.length} 道 · 生成于 ${new Date().toLocaleString('zh-CN')}</p>
+          <p class="pf-sub">共 ${arr.length} 道 · ${modeName}${sort === 'subject' ? ' · 按科目分组' : ''} · 生成于 ${new Date().toLocaleString('zh-CN')}</p>
         </div>
-        ${list.map((e, i) => {
+        ${arr.map((e, i) => {
           const isP = isDictError(e);
           const q = isP ? (e.pinyin || e.text || '') : (e.text || '');
-          const reserve = needWrite(e);
           return `
           <div class="pf-item">
             <div class="pf-meta">
@@ -2366,7 +2437,7 @@
             </div>
             ${q ? `<div class="pf-q">${q}</div>` : ''}
             ${imgList(e).map(s => `<img class="pf-img zoomable" src="${s}" alt=""/>`).join('')}
-            ${reserve ? `<div class="pf-write"><span>作答区域</span></div>` : ''}
+            ${(reserve && needWrite(e)) ? `<div class="pf-write"><span>作答区域</span></div>` : ''}
           </div>`;
         }).join('')}
       </div>`;
