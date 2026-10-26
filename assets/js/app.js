@@ -52,6 +52,15 @@
   function redoDueList() {
     return getRedo().map(id => DB.getError(id)).filter(e => e && !DB.isMastered(e));
   }
+  // ★ 重点：未掌握的星标题（含尚未到期的，可提前练）
+  function starredList() {
+    return DB.getErrors().filter(e => e.starred && !DB.isMastered(e));
+  }
+  // 逾期：到期日早于今天零点（今天到期的算「今天」，不算逾期）
+  function overdueList() {
+    const t0 = startOfToday();
+    return DB.dueReviews().filter(e => DB.nextDueDate(e) < t0);
+  }
   // 每道题的来源标记：{ due: 到期, redo: 重练, practice: 加练 }
   // 同一道题既到期又在重练清单里时只显示一次，但两个标记都保留
   function sourceMap() {
@@ -74,10 +83,13 @@
     if (!lean && o.redo) h += '<span class="tag src-redo">重练</span>';
     return h;
   }
-  // 复习页某个切换标签下的题目：due=到期 / redo=重练 / all=两者合并去重
+  // 复习页某个切换标签下的题目：
+  //   due=今天的待复习 / redo=重练清单 / overdue=逾期（到期日早于今天）/ star=★重点（未掌握）/ all=到期+重练合并去重
   function revListFor(tab) {
     const due = DB.dueReviews();
     if (tab === 'redo') return redoDueList();
+    if (tab === 'overdue') { const t0 = startOfToday(); return due.filter(e => DB.nextDueDate(e) < t0); }
+    if (tab === 'star') return starredList();
     if (tab === 'all') {
       const ids = new Set(due.map(e => e.id));
       return due.concat(redoDueList().filter(e => !ids.has(e.id)));
@@ -194,13 +206,12 @@
     const redoDue = redoDueList();
     const revCount = due.length;
     const known = errs.filter(e => DB.isMastered(e)).length;
-    const starN = errs.filter(e => e.starred).length;
+    const starN = starredList().length;
     // 今日进度：今天已批过的题（按错题去重）+ 仍待批的到期题
-    const t0 = startOfToday();
     const doneN = doneTodayCount(errs);
     const totalToday = doneN + revCount;
     const pct = totalToday ? Math.min(100, Math.round(doneN / totalToday * 100)) : 0;
-    const overdueN = due.filter(e => DB.nextDueDate(e) < t0).length;
+    const overdueN = overdueList().length;
     // 学科构成：一眼看出今天哪科最多
     const bySubj = {};
     due.forEach(e => { bySubj[e.subject] = (bySubj[e.subject] || 0) + 1; });
@@ -1518,16 +1529,21 @@
     const list = revListFor(tab);
     const dueN = DB.dueReviews().length;
     const redoN = redoDueList().length;
+    const overdueN = overdueList().length;
+    const starN = starredList().length;
     const allN = new Set(DB.dueReviews().map(e => e.id).concat(redoDueList().map(e => e.id))).size;
     const mastered = DB.getErrors().filter(e => DB.isMastered(e));
     const emptyText = tab === 'redo'
       ? '还没有重练题。去「笔记本」勾选错题点「加入重练」，就会出现在这里。'
-      : (tab === 'all' ? '暂时没有需要练习的题，继续保持！' : '今天没有到期要复习的错题，继续保持！');
+      : (tab === 'overdue' ? '没有逾期的题，节奏保持得很好。'
+        : (tab === 'star' ? '还没有标星的重点题。在卡片或详情页点 ☆ 就能标记。'
+          : (tab === 'all' ? '暂时没有需要练习的题，继续保持！' : '今天没有到期要复习的错题，继续保持！')));
     const cards = list.map(e => {
       const o = sm.get(e.id) || {};
+      const when = o.due ? dueLabel(e) : (o.redo ? '手动加入重练 · 集中练习' : '★ 重点 · 未到期，可提前练');
       return `
         <div class="rev-item">
-          <div class="rev-due${o.due ? '' : ' is-redo'}">${o.due ? dueLabel(e) : '手动加入重练 · 集中练习'}</div>
+          <div class="rev-due${o.due ? '' : ' is-redo'}">${when}</div>
           <div class="rev-card">
             <div class="item-top">
               ${srcTagsHTML(e, sm, tab !== 'all')}${metaTagsHTML(e, { mastery: false })}
@@ -1553,14 +1569,18 @@
       </div>
       <div class="seg-tabs" id="revTabs">
         <button data-tab="due" class="${tab === 'due' ? 'on' : ''}">待复习<i>${dueN}</i></button>
-        <button data-tab="redo" class="${tab === 'redo' ? 'on' : ''}">错题重练<i>${redoN}</i></button>
+        <button data-tab="redo" class="${tab === 'redo' ? 'on' : ''}">重练<i>${redoN}</i></button>
+        <button data-tab="overdue" class="${tab === 'overdue' ? 'on' : ''}">逾期<i>${overdueN}</i></button>
+        <button data-tab="star" class="${tab === 'star' ? 'on' : ''}">重点<i>${starN}</i></button>
         <button data-tab="all" class="${tab === 'all' ? 'on' : ''}">全部<i>${allN}</i></button>
       </div>
       <p class="rev-tip">${tab === 'redo'
         ? '重练题来自你手动勾选：答对即移出重练清单，答错明天再推，直到全对。'
-        : (state.selfTest
-          ? '自测模式已开启：答案默认遮住，先自己回想，点「显示答案」核对，再进批改记录对错。'
-          : '自测模式已关闭：答案直接显示，适合快速核对。')}</p>
+        : (tab === 'overdue' ? '这里只列出到期日早于今天的题，越靠前逾期越久，建议先练。'
+          : (tab === 'star' ? '★ 重点是你在卡片上标星的题；未到期的也可在这里提前练，批改后按正常周期推进。'
+            : (state.selfTest
+              ? '自测模式已开启：答案默认遮住，先自己回想，点「显示答案」核对，再进批改记录对错。'
+              : '自测模式已关闭：答案直接显示，适合快速核对。')))}</p>
       ${list.length
         ? `<div id="revList">${cards}</div>`
         : `<div class="empty"><span class="em-ico">🌱</span>${emptyText}</div>`}
