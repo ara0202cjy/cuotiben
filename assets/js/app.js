@@ -1978,11 +1978,6 @@
   function renderMine() {
     const kps = DB.getKeywords('kp').length, srcs = DB.getKeywords('src').length;
     $('#view').innerHTML = `
-      <div class="card" style="text-align:center;padding:22px">
-        <div style="font-size:40px">🌿</div>
-        <p style="margin:6px 0 0;font-weight:700">我的错题本</p>
-        <p style="margin:2px 0 0;color:var(--ink-2);font-size:13px">数据保存在本设备，可按学科管理错题本与关键词</p>
-      </div>
       <div class="ms-panel" id="msPanel">
         <div class="ms-head" id="msToggle">
           <span>掌握情况统计</span>

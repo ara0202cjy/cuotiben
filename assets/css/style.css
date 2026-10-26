@@ -475,12 +475,16 @@ body {
 @media print {
   @page { size: A4; margin: 16mm; }
   html, body { background: #fff; }
-  body * { visibility: hidden; }
-  #printArea, #printArea * { visibility: visible; }
+  /* 打印时把 App 整个从排版中移除：
+     只用 visibility:hidden 会保留 App 占位（#app 有 min-height:100vh），
+     再叠加绝对定位的打印区，很容易多顶出一张空白页 */
+  body > *:not(#printArea) { display: none !important; }
   #printArea {
-    display: block; position: absolute; left: 0; top: 0; width: 100%;
+    display: block; position: static; width: auto; margin: 0; padding: 0;
     font-family: var(--font); color: #222; font-size: 13px; line-height: 1.6;
   }
+  /* 最后一题不留底边距，避免被挤到下一页形成空白页 */
+  .pf-item:last-child { margin-bottom: 0 !important; }
   .pf-head { border-bottom: 2px solid #5d9b85; padding-bottom: 8px; margin-bottom: 14px; }
   .pf-title { margin: 0; font-size: 20px; color: #3a5b4f; }
   .pf-sub { margin: 4px 0 0; color: #777; font-size: 12px; }
