@@ -592,3 +592,53 @@ body {
 .exp-img { max-width: 100%; border-radius: 8px; margin-bottom: 8px; display: block; }
 .item-img { width: 100%; max-height: 150px; object-fit: contain; border-radius: 8px; margin: 8px 0 0; background: var(--surface-2); display: block; }
 .exp-meta-row { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 11.5px; color: var(--ink-3); margin-top: 6px; line-height: 1.5; }
+
+/* ============ 重点标星 ============ */
+.book .item { padding-right: 70px; }
+.item-star {
+  position: absolute; top: 10px; right: 40px; z-index: 2;
+  width: 26px; height: 26px; padding: 0; border: none; cursor: pointer;
+  background: var(--surface-2); border-radius: 8px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--ink-3); font-size: 15px; line-height: 1;
+}
+.item-star:active { transform: scale(.92); }
+.item-star.on { color: #e0a63a; background: #fdf3df; }
+.tag.star { background: #fdf3df; color: #b98a1f; font-weight: 600; }
+.icon-btn-sm.star { font-size: 16px; line-height: 1; color: var(--ink-3); }
+.icon-btn-sm.star.on { background: #fdf3df; color: #e0a63a; }
+
+/* ============ 列表排序 ============ */
+.nb-sort { display: flex; align-items: center; gap: 8px; margin: -2px 0 10px; }
+.sort-lab { font-size: 12.5px; color: var(--ink-2); font-weight: 600; flex: 0 0 auto; }
+.sort-select {
+  flex: 1; min-width: 0; padding: 7px 10px; font-size: 13px; color: var(--ink);
+  background: var(--surface); border: 1px solid var(--line); border-radius: 11px;
+  font-family: var(--font); cursor: pointer;
+}
+.sort-select:focus { outline: none; border-color: var(--primary); }
+
+/* ============ 语音输入 ============ */
+.ta-wrap { position: relative; }
+.ta-wrap .textarea { padding-right: 44px; }
+.mic-btn {
+  position: absolute; right: 8px; bottom: 9px; width: 32px; height: 32px;
+  border: 1px solid var(--line); border-radius: 50%; cursor: pointer;
+  background: var(--surface-2); font-size: 15px; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.mic-btn:active { transform: scale(.94); background: var(--primary-soft); }
+.mic-tip { font-size: 11.5px; color: var(--ink-3); margin: 6px 0 0; line-height: 1.5; }
+
+/* ============ 自测模式（复习页 / 详情页答案遮罩） ============ */
+.rev-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.exp-ans, .detail-ans-body {
+  font-size: 13.5px; color: var(--ink); line-height: 1.65; white-space: pre-wrap; word-break: break-word;
+  background: var(--primary-soft); border-radius: 10px; padding: 9px 11px; margin: 6px 0 2px;
+}
+.exp-ans .ga-k, .detail-ans-body .ga-k { color: var(--primary-deep); font-weight: 600; }
+.detail-ans { margin-top: 10px; }
+
+/* ============ 各知识点掌握率 ============ */
+.ms-kprow > span { width: 86px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ms-kprow > b { width: 52px; }

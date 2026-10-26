@@ -274,6 +274,7 @@
       mode: 'text',
       text: '', image: null, images: [], pinyin: '',
       kpId: null, srcId: null, mastery: 'unknown',
+      starred: false, starAt: '',
       answer: '', reviews: [],
     }, data, { createdAt: (data && data.createdAt) ? data.createdAt : created });
     list.push(err); write(K('errors'), list); autoSyncTick(); return err;
@@ -391,6 +392,13 @@
   function setMasteredFlag(id, on) {
     const e = getError(id); if (!e) return;
     e.mastery = on ? 'known' : 'unknown';
+    updateError(id, e); autoSyncTick();
+  }
+  // 重点标星：starAt 记录最近一次切换时间，供跨端合并时按「较晚操作」裁决
+  function setStar(id, on) {
+    const e = getError(id); if (!e) return;
+    e.starred = !!on;
+    e.starAt = now();
     updateError(id, e); autoSyncTick();
   }
 
@@ -648,6 +656,10 @@
       ['text','answer','subject','mastery','kpId','srcId','mode','pinyin','createdAt','practiceOnce'].forEach(k => {
         if (le[k] === undefined || le[k] === null || le[k] === '') le[k] = ce[k];
       });
+      // 星标：按 starAt 取较晚的一次切换（避免另一端旧值把刚打的星覆盖掉）
+      const lt = Date.parse(le.starAt || 0) || 0, ct = Date.parse(ce.starAt || 0) || 0;
+      if (ct > lt) { le.starred = !!ce.starred; le.starAt = ce.starAt || ''; }
+      else if (le.starred === undefined) le.starred = !!ce.starred;
     });
     // 最终剔除被删除的错题（本地或云端墓碑命中者均不进本地）
     Object.keys(errDel).forEach(id => map.delete(id));
@@ -800,7 +812,7 @@
     getKeywords, addKeyword, updateKeyword, deleteKeyword, pruneUnusedKeywords,
     getErrors, getError, addError, updateError, deleteError,
     nextDueDate, isMastered, dueReviews, recordReview, getRType, setKeywordRType,
-    practiceOnceDays, addPracticeOnce, setMasteredFlag,
+    practiceOnceDays, addPracticeOnce, setMasteredFlag, setStar,
     snooze, getPracticeSession, setPracticeSession,
     getRedoList, addToRedo, removeFromRedo,
     toPinyin, seedIfEmpty, seedReviewDemo,

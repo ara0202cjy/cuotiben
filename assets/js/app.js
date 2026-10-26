@@ -36,7 +36,7 @@
     next.onclick = ev => { ev.stopPropagation(); show(idx + 1); };
   }
 
-  const state = { view: 'home', subject: '全部', filter: {}, expanded: {}, mastExpanded: {}, selectMode: false, selected: new Set(), mineFilter: { subject: '全部', kpId: null, srcId: null }, mineStatOpen: true, search: '' };
+  const state = { view: 'home', subject: '全部', filter: {}, expanded: {}, mastExpanded: {}, selectMode: false, selected: new Set(), mineFilter: { subject: '全部', kpId: null, srcId: null }, mineStatOpen: true, search: '', sort: 'created', selfTest: true };
   // 练习队列（选题重练）已持久化到账户存储并随云端同步，统一经 DB 读写（不再仅存内存）
   const getPractice = () => DB.getPracticeSession() || [];
   const setPractice = arr => DB.setPracticeSession(arr);
@@ -88,6 +88,7 @@
       + (e.kpId ? `<span class="tag">${esc(kwName(e.kpId))}</span>` : '')
       + (e.srcId ? `<span class="tag">${esc(kwName(e.srcId))}</span>` : '')
       + (e.kpId ? (DB.getRType(e) === 'drill' ? '<span class="tag drill">记忆型</span>' : '<span class="tag stable">稳定型</span>') : '')
+      + (e.starred ? '<span class="tag star">★ 重点</span>' : '')
       + masteryDisplay(e);
   }
   function fmtDate(iso) {
@@ -231,6 +232,22 @@
       <div class="exp-meta-row"><span>收录于 ${fmtDate(e.createdAt)}</span><span>做题 ${e.reviews.length} 次 · 正确 ${ok} 次 · 错误 ${bad} 次</span></div>`;
   }
 
+  // 复习卡片展开块：在 errorExpandHTML 基础上增加「答案」区（自测模式默认遮住）
+  function reviewExpandHTML(e) {
+    const isP = isDictError(e);
+    const qFull = isP ? (e.pinyin || e.text || '') : (e.text || '');
+    const ok = e.reviews.filter(r => r.correct).length;
+    const bad = e.reviews.length - ok;
+    const ans = (e.answer && String(e.answer).trim()) ? String(e.answer) : '';
+    const hide = !!(state.selfTest && ans);
+    return `
+      ${qFull ? `<div class="exp-q">${qFull}</div>` : ''}
+      ${imgList(e).map(s => `<img class="exp-img zoomable" src="${s}" alt=""/>`).join('')}
+      ${ans ? `<div class="exp-ans" data-ans-body="${e.id}"${hide ? ' hidden' : ''}><span class="ga-k">答案：</span>${esc(ans)}</div>` : ''}
+      ${hide ? `<button class="btn-show-ans" type="button" data-ans-btn="${e.id}">先自测 · 显示答案</button>` : ''}
+      <div class="exp-meta-row"><span>收录于 ${fmtDate(e.createdAt)}</span><span>做题 ${e.reviews.length} 次 · 正确 ${ok} 次 · 错误 ${bad} 次</span></div>`;
+  }
+
   function isDictError(e) {
     const kp = DB.getKeywords('kp').find(k => k.id === e.kpId);
     return e.subject === '语文' && kp && DB.isChineseDictKp(kp.name);
@@ -251,6 +268,7 @@
     const q = (isP ? (e.pinyin || e.text || '') : (e.text || '')).slice(0, 60);
     return `
       <div class="item${selectable && selected ? ' sel' : ''}" data-id="${e.id}">
+        ${withDel ? `<button class="item-star${e.starred ? ' on' : ''}" data-star="${e.id}" title="${e.starred ? '取消重点' : '标为重点'}" aria-label="重点标星">${e.starred ? '★' : '☆'}</button>` : ''}
         ${withDel ? `<button class="item-edit" data-edit="${e.id}" title="编辑 / 删除" aria-label="编辑"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>` : ''}
         <div class="item-top">
           ${selectable ? `<input type="checkbox" class="item-check" data-id="${e.id}" ${selected ? 'checked' : ''} aria-label="选择"/>` : ''}
@@ -266,7 +284,7 @@
     $$('.item').forEach(it => {
       const exp = it.querySelector('.item-exp');
       if (exp) it.addEventListener('click', ev => {
-        if (ev.target.closest('.item-edit')) return;
+        if (ev.target.closest('.item-edit') || ev.target.closest('.item-star')) return;
         exp.hidden = !exp.hidden;
         it.classList.toggle('open', !exp.hidden);
       });
@@ -274,6 +292,19 @@
       if (edit) edit.addEventListener('click', ev => {
         ev.stopPropagation();
         openDetail(edit.dataset.edit);
+      });
+      // 重点标星：就地切换，不触发卡片展开
+      const star = it.querySelector('.item-star');
+      if (star) star.addEventListener('click', ev => {
+        ev.stopPropagation();
+        const id = star.dataset.star;
+        const cur = DB.getError(id);
+        const on = !(cur && cur.starred);
+        DB.setStar(id, on);
+        star.textContent = on ? '★' : '☆';
+        star.classList.toggle('on', on);
+        star.title = on ? '取消重点' : '标为重点';
+        toast(on ? '已标为重点 ★' : '已取消重点');
       });
     });
   }
@@ -559,9 +590,25 @@
       .filter(Boolean).join(' ').toLowerCase();
     return hay.indexOf(q) !== -1;
   }
+  // 列表排序：录入时间（默认，新→旧）/ 错题次数（多→少）/ 下次推送（近→远）/ 重点优先
+  function sortErrs(list) {
+    const arr = list.slice();
+    const t = x => new Date(x.createdAt || 0).getTime() || 0;
+    const k = state.sort || 'created';
+    if (k === 'wrong') arr.sort((a, b) => wrongCount(b) - wrongCount(a) || t(b) - t(a));
+    else if (k === 'due') arr.sort((a, b) => {
+      const da = DB.nextDueDate(a), db2 = DB.nextDueDate(b);
+      const va = da === Infinity ? Number.MAX_SAFE_INTEGER : da;
+      const vb = db2 === Infinity ? Number.MAX_SAFE_INTEGER : db2;
+      return va - vb || t(b) - t(a);
+    });
+    else if (k === 'star') arr.sort((a, b) => (b.starred ? 1 : 0) - (a.starred ? 1 : 0) || t(b) - t(a));
+    else arr.sort((a, b) => t(b) - t(a));
+    return arr;
+  }
   // 某学科在当前「筛选 + 搜索」下的可见错题
   function visibleSubjectErrs(s) {
-    return listSubjectErrs(s).filter(searchMatch);
+    return sortErrs(listSubjectErrs(s).filter(searchMatch));
   }
   function renderList() {
     const subjects = DB.getSubjects();
@@ -584,12 +631,24 @@
         <button class="btn ghost" id="selectAll">全选</button>
         <button class="btn ghost" id="toggleAll">${allOpen ? '收起' : '展开'}</button>
       </div>
+      <div class="nb-sort">
+        <span class="sort-lab">排序</span>
+        <select id="nbSort" class="sort-select" aria-label="错题排序">
+          <option value="created" ${state.sort === 'created' ? 'selected' : ''}>录入时间（新→旧）</option>
+          <option value="wrong" ${state.sort === 'wrong' ? 'selected' : ''}>错题次数（多→少）</option>
+          <option value="due" ${state.sort === 'due' ? 'selected' : ''}>下次推送（近→远）</option>
+          <option value="star" ${state.sort === 'star' ? 'selected' : ''}>重点优先</option>
+        </select>
+      </div>
       ${state.selectMode ? `
       <p class="nb-selcnt">已选 ${state.selected.size} 道</p>
       <div class="nb-tools nb-act">
         <button class="btn" id="repSel">加入重练</button>
         <button class="btn" id="expSel">导出PDF</button>
         <button class="btn ghost nb-danger" id="delSel">删除选中</button>
+      </div>
+      <div class="nb-tools nb-act" style="margin-top:8px">
+        <button class="btn ghost" id="batchEdit">批量改属性</button>
         <button class="btn ghost" id="selNone">清空选择</button>
       </div>` : ''}
       <p class="list-hint">点开任一错题本可预览内容 · 共 ${total} 道 · 点 ✕ 可删减${hasFilter ? '（已按筛选隐藏无匹配学科）' : ''}</p>
@@ -633,6 +692,8 @@
       }).join('') : `<div class="empty">没有符合当前筛选的错题</div>`}`;
 
     $('#openFilter').addEventListener('click', () => openFilter());
+    // 排序切换：只改展示顺序，不动数据
+    $('#nbSort')?.addEventListener('change', e => { state.sort = e.target.value; renderList(); });
     $('#toggleSelect').addEventListener('click', () => {
       state.selectMode = !state.selectMode;
       if (!state.selectMode) state.selected.clear();
@@ -678,6 +739,7 @@
         toast('已删除 ' + ids.length + ' 道错题');
       });
       $('#expSel').addEventListener('click', () => openExportSelect(Array.from(state.selected)));
+      $('#batchEdit')?.addEventListener('click', () => openBatchEdit(Array.from(state.selected)));
       $('#selNone').addEventListener('click', () => { state.selected.clear(); renderList(); });
     }
     $$('.book-head').forEach(h => h.addEventListener('click', () => {
@@ -720,6 +782,93 @@
         else errs.forEach(e => state.selected.delete(e.id));
         renderList();
       });
+    });
+  }
+  /* ---------------- 批量改属性 ---------------- */
+  // 对勾选的多道错题统一修改：掌握状态 / 学科 / 知识点 / 来源 / 重点标星
+  function openBatchEdit(ids) {
+    ids = (ids || []).filter(Boolean);
+    if (!ids.length) { toast('请先勾选要修改的错题'); return; }
+    const subs = DB.getSubjects();
+    let masterySel = '', subjSel = '', kpSel = '', srcSel = '', starSel = '';
+    const body = openSheet(`
+      <button class="close-x">✕</button>
+      <h3>批量改属性（${ids.length} 道）</h3>
+      <p class="set-tip2">只应用你选中的项；「不改」表示保持原样。改学科会清空原知识点 / 来源（可在下方一并重选）。</p>
+      <div class="field"><label>掌握状态</label><div class="kw-box" id="bM">
+        <span class="kw active" data-v="">不改</span>
+        <span class="kw" data-v="unknown">未掌握</span>
+        <span class="kw" data-v="known">已掌握</span>
+      </div></div>
+      <div class="field"><label>学科</label><div class="kw-box" id="bS">
+        <span class="kw active" data-v="">不改</span>
+        ${subs.map(s => `<span class="kw" data-v="${esc(s)}">${esc(s)}</span>`).join('')}
+      </div></div>
+      <div class="field"><label>知识点</label><div class="kw-box" id="bK"></div></div>
+      <div class="field"><label>来源</label><div class="kw-box" id="bR"></div></div>
+      <div class="field"><label>重点标星</label><div class="kw-box" id="bT">
+        <span class="kw active" data-v="">不改</span>
+        <span class="kw" data-v="1">标为重点 ★</span>
+        <span class="kw" data-v="0">取消重点</span>
+      </div></div>
+      <button class="btn" id="bApply">应用到 ${ids.length} 道</button>`);
+
+    function bindSingle(boxId, onPick) {
+      const box = document.getElementById(boxId);
+      box.querySelectorAll('.kw').forEach(w => w.addEventListener('click', () => {
+        box.querySelectorAll('.kw').forEach(x => x.classList.remove('active'));
+        w.classList.add('active');
+        onPick(w.dataset.v || '');
+      }));
+    }
+    function kwListHTML(type, subject) {
+      const list = DB.getKeywords(type).filter(k => !subject || k.subject === subject);
+      return `<span class="kw active" data-v="">不改</span><span class="kw" data-v="__none">清空</span>`
+        + list.map(k => `<span class="kw" data-v="${k.id}">${esc(k.name)}</span>`).join('');
+    }
+    function renderLists() {
+      const bk = document.getElementById('bK'), br = document.getElementById('bR');
+      bk.innerHTML = kwListHTML('kp', subjSel);
+      br.innerHTML = kwListHTML('src', subjSel);
+      bindSingle('bK', v => { kpSel = v; });
+      bindSingle('bR', v => { srcSel = v; });
+    }
+    bindSingle('bM', v => { masterySel = v; });
+    bindSingle('bS', v => { subjSel = v; kpSel = ''; srcSel = ''; renderLists(); });
+    bindSingle('bT', v => { starSel = v; });
+    renderLists();
+
+    $('#bApply').addEventListener('click', () => {
+      if (!masterySel && !subjSel && kpSel === '' && srcSel === '' && starSel === '') {
+        toast('请至少选择一项要修改的属性'); return;
+      }
+      const kpObj = (kpSel && kpSel !== '__none') ? DB.getKeywords('kp').find(k => k.id === kpSel) : null;
+      const srcObj = (srcSel && srcSel !== '__none') ? DB.getKeywords('src').find(k => k.id === srcSel) : null;
+      const stamp = new Date().toISOString();
+      let n = 0;
+      ids.forEach(id => {
+        const e = DB.getError(id); if (!e) return;
+        const patch = {};
+        const targetSubj = (kpObj && kpObj.subject) || (srcObj && srcObj.subject) || subjSel || '';
+        if (masterySel) patch.mastery = masterySel;
+        if (targetSubj) patch.subject = targetSubj;
+        // 学科变化且未显式重选知识点/来源 → 清空，避免跨科错挂
+        if (targetSubj && targetSubj !== e.subject) {
+          if (kpSel === '' && !kpObj) patch.kpId = null;
+          if (srcSel === '' && !srcObj) patch.srcId = null;
+        }
+        if (kpSel === '__none') patch.kpId = null;
+        else if (kpObj) patch.kpId = kpSel;
+        if (srcSel === '__none') patch.srcId = null;
+        else if (srcObj) patch.srcId = srcSel;
+        if (starSel === '1') { patch.starred = true; patch.starAt = stamp; }
+        else if (starSel === '0') { patch.starred = false; patch.starAt = stamp; }
+        if (Object.keys(patch).length) { DB.updateError(id, patch); n++; }
+      });
+      state.selected.clear();
+      closeSheet();
+      renderList();
+      toast(`已批量修改 ${n} 道 ✓`);
     });
   }
   // 错题次数 = 该错题在复习中被判错的次数（reviews 中 correct 为 false 的条数）
@@ -893,6 +1042,79 @@
     });
   }
 
+  /* ---------------- 相似题查重（保存前提示，避免重复录入） ---------------- */
+  function normText(s) {
+    return String(s || '').toLowerCase()
+      .replace(/[\s\u3000]/g, '')
+      .replace(/[，。！？；：、“”‘’（）《》【】「」,.!?;:"'()\[\]<>·…—\-_=+*/\\|~`@#$%^&]/g, '');
+  }
+  function bigramsOf(s) {
+    const set = new Set();
+    for (let i = 0; i < s.length - 1; i++) set.add(s.slice(i, i + 2));
+    return set;
+  }
+  // 相似度：字符二元组 Dice 系数 + 「一方完整包含另一方」加成
+  function similarity(a, b) {
+    const A = normText(a), B = normText(b);
+    if (!A || !B) return 0;
+    if (A === B) return 1;
+    let score = 0;
+    const ga = bigramsOf(A), gb = bigramsOf(B);
+    if (ga.size && gb.size) {
+      let inter = 0;
+      ga.forEach(g => { if (gb.has(g)) inter++; });
+      score = 2 * inter / (ga.size + gb.size);
+    }
+    const short = A.length <= B.length ? A : B;
+    const long = A.length <= B.length ? B : A;
+    if (short.length >= 6 && long.indexOf(short) !== -1) score = Math.max(score, 0.88);
+    return score;
+  }
+  // 在同科错题里找相似题（阈値 0.62，最多 3 道）
+  function findSimilar(subject, text, excludeId) {
+    const nt = normText(text);
+    if (!nt || nt.length < 6) return [];
+    return DB.getErrors({ subject })
+      .filter(e => e.id !== excludeId)
+      .map(e => ({ e, score: similarity(text, e.text || e.pinyin || '') }))
+      .filter(x => x.score >= 0.62)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3);
+  }
+
+  /* ---------------- 语音输入（Web Speech API，纯前端） ---------------- */
+  function startVoice(targetId) {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { toast('当前浏览器不支持语音输入，请用 Chrome / Edge，或手动输入'); return; }
+    let rec = null;
+    try { rec = new SR(); } catch (e) { toast('无法启动语音识别'); return; }
+    rec.lang = 'zh-CN';
+    rec.continuous = false;
+    rec.interimResults = false;
+    rec.maxAlternatives = 1;
+    rec.onresult = ev => {
+      let txt = '';
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        if (ev.results[i].isFinal) txt += ev.results[i][0].transcript;
+      }
+      txt = txt.trim();
+      const ta = document.getElementById(targetId);
+      if (ta && txt) {
+        const cur = ta.value;
+        ta.value = cur ? (cur.replace(/\s+$/, '') + ' ' + txt) : txt;
+        ta.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      toast(txt ? '语音已转成文字 ✓' : '没听清，请再说一次');
+    };
+    rec.onerror = ev => {
+      if (ev && ev.error === 'not-allowed') toast('麦克风权限被拒绝，请在浏览器设置里允许');
+      else toast('语音识别失败，请重试或手动输入');
+    };
+    rec.onend = () => { rec = null; };
+    try { rec.start(); toast('正在聆听…请说话'); }
+    catch (e) { toast('无法启动麦克风，请检查权限'); }
+  }
+
   /* ---------------- 录入错题 ---------------- */
   function openEntry(err) {
     const subjects = DB.getSubjects();
@@ -1004,7 +1226,11 @@
       ${modeSection}
       <div class="field" id="entryQField">
         <label id="entryQLabel">题干 / 错题内容</label>
-        <textarea class="textarea" id="entryText" placeholder="输入或粘贴题目内容…">${form.text}</textarea>
+        <div class="ta-wrap">
+          <textarea class="textarea" id="entryText" placeholder="输入或粘贴题目内容…">${form.text}</textarea>
+          <button class="mic-btn" id="micQ" type="button" title="语音输入（口述题目）" aria-label="语音输入">🎤</button>
+        </div>
+        <p class="mic-tip">点 🎤 可语音口述题目（浏览器需支持语音识别，Chrome / Edge 体验最佳）</p>
       </div>
       <div class="field" id="imgField"><label>图片（可一次添加多张，从相册选择，可裁剪 / 删除）</label>
         <button class="btn ghost" id="imgDrop" style="width:100%">🖼 从相册添加图片（可多选）</button>
@@ -1021,7 +1247,10 @@
         <button class="btn ghost sm" id="renameSrc" style="margin-top:8px">✎ 重命名所选来源</button></div>
       <div class="field" id="entryAnsField">
         <label>正确答案</label>
-        <textarea class="textarea" id="entryAnswer" placeholder="填写正确答案与解析…">${form.answer}</textarea>
+        <div class="ta-wrap">
+          <textarea class="textarea" id="entryAnswer" placeholder="填写正确答案与解析…">${form.answer}</textarea>
+          <button class="mic-btn" id="micA" type="button" title="语音输入答案" aria-label="语音输入答案">🎤</button>
+        </div>
       </div>
       <button class="btn" id="saveErr">${isEdit ? '保存修改' : '保存错题'}</button>`);
 
@@ -1047,6 +1276,9 @@
     }));
     $('#entryText').addEventListener('input', e => { form.text = e.target.value; refresh(); });
     $('#entryAnswer').addEventListener('input', e => (form.answer = e.target.value));
+    // 语音输入：把识别出的文字追加到对应输入框
+    $('#micQ')?.addEventListener('click', () => startVoice('entryText'));
+    $('#micA')?.addEventListener('click', () => startVoice('entryAnswer'));
     // 重命名知识点/来源：按 id 关联，所有使用它的错题会同步更新
     $('#renameKp').addEventListener('click', () => {
       if (!form.kpId) { toast('请先选择一个知识点再重命名'); return; }
@@ -1160,6 +1392,19 @@
         payload.answer = form.text;        // 中文作为正确答案（不展示）
         payload.pinyin = py;
       }
+      // 新建时先查重：同科已有高度相似的题，弹提示让用户决定是否仍要添加
+      if (!isEdit) {
+        const cmp = payload.text || payload.pinyin || '';
+        const sims = findSimilar(form.subject, cmp, null);
+        if (sims.length) {
+          const top = sims[0];
+          const q = (top.e.text || top.e.pinyin || '').replace(/\s+/g, ' ').slice(0, 50);
+          const pct = Math.round(top.score * 100);
+          const more = sims.length > 1 ? `\n（另有 ${sims.length - 1} 道相似题）` : '';
+          const go = confirm(`发现相似题（相似度约 ${pct}%）：\n「${q}」${more}\n\n仍要继续添加吗？\n点「取消」可返回检查，避免重复录入。`);
+          if (!go) { toast('已暂停保存，请先核对是否重复'); return; }
+        }
+      }
       if (isEdit) {
         DB.updateError(editId, payload);
         toast('已保存修改 ✓'); closeSheet();
@@ -1191,6 +1436,7 @@
       <div class="detail-head">
         <h3>错题详情</h3>
         <div class="detail-head-actions">
+          <button class="icon-btn-sm star${e.starred ? ' on' : ''}" id="starErr" title="${e.starred ? '取消重点' : '标为重点'}" aria-label="重点标星">${e.starred ? '★' : '☆'}</button>
           <button class="icon-btn-sm" id="editErr" title="编辑" aria-label="编辑">
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
           </button>
@@ -1202,6 +1448,10 @@
       </div>
       <div class="item-meta">${metaTagsHTML(e)}</div>
       ${questionBlockHTML(e, isPinyin)}
+      ${(e.answer && String(e.answer).trim()) ? `<div class="detail-ans">
+        <button class="btn-show-ans" id="showAnsBtn" type="button">先自测 · 显示答案</button>
+        <div class="detail-ans-body" id="ansBody" hidden><span class="ga-k">答案：</span>${esc(e.answer)}</div>
+      </div>` : ''}
       <div class="item-when" style="margin-top:8px">${whenText}</div>
       ${e.reviews.length ? `<div class="records"><p class="card-h" style="margin-top:14px">复习记录（已答对 ${e.reviews.filter(r => r.correct).length} / 共 ${e.reviews.length} 次）</p>
         ${e.reviews.map(r => `<div class="rec"><span class="${r.correct ? 'r-ok' : 'r-bad'}">${r.correct ? '✓ 答对' : '✗ 答错'}</span>
@@ -1215,6 +1465,21 @@
       if (confirm('确定删除这道错题？')) { DB.deleteError(id); closeSheet(); toast('已删除'); setView(state.view); }
     });
     $('#editErr').addEventListener('click', () => { closeSheet(); openEntry(e); });
+    // 重点标星：就地切换
+    $('#starErr')?.addEventListener('click', () => {
+      const on = !DB.getError(id).starred;
+      DB.setStar(id, on);
+      const btn = $('#starErr');
+      btn.textContent = on ? '★' : '☆';
+      btn.classList.toggle('on', on);
+      btn.title = on ? '取消重点' : '标为重点';
+      toast(on ? '已标为重点 ★' : '已取消重点');
+    });
+    // 详情页答案默认遮住，先自测再显示
+    $('#showAnsBtn')?.addEventListener('click', () => {
+      const b = $('#ansBody'); if (b) b.hidden = false;
+      $('#showAnsBtn').style.display = 'none';
+    });
     // 提前重练：在更早的日期做一次练习，仅把这次推送提前，其余节点推送日期不变（排期锚点不变）
     $('#redoEarly')?.addEventListener('click', () => {
       closeSheet();
@@ -1270,9 +1535,14 @@
         : `
         <div class="rev-toolbar">
           <div class="rev-count">🔔 今日待复习 <b>${due.length}</b> 道</div>
-          <button class="btn small" id="toGrade">批改</button>
+          <div class="rev-actions">
+            <button class="btn small ghost" id="selfTestBtn">${state.selfTest ? '自测模式：开' : '自测模式：关'}</button>
+            <button class="btn small" id="toGrade">批改</button>
+          </div>
         </div>
-        <p class="rev-tip">以下为全部待复习内容（已展开）；自测后可点右上「批改」逐题勾选对错并记录。</p>
+        <p class="rev-tip">${state.selfTest
+          ? '自测模式已开启：答案默认遮住，先自己回想，点「显示答案」核对，再进批改记录对错。'
+          : '自测模式已关闭：答案直接显示，适合快速核对。'}</p>
         <div id="revList">
           ${due.map(e => `
             <div class="rev-item">
@@ -1283,7 +1553,7 @@
                     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
                   </button>
                 </div>
-                ${errorExpandHTML(e, true)}
+                ${reviewExpandHTML(e)}
               </div>
             </div>`).join('')}
         </div>`}
@@ -1297,6 +1567,15 @@
     `;
     $$('#revList .item-edit').forEach(b => b.addEventListener('click', ev => {
       ev.stopPropagation(); openDetail(b.dataset.edit);
+    }));
+    // 自测模式开关：控制答案是否默认遮住
+    $('#selfTestBtn')?.addEventListener('click', () => { state.selfTest = !state.selfTest; renderReview(); });
+    // 单题「显示答案」：只展开当前题
+    $$('#revList [data-ans-btn]').forEach(b => b.addEventListener('click', ev => {
+      ev.stopPropagation();
+      const body = document.querySelector('[data-ans-body="' + b.dataset.ansBtn + '"]');
+      if (body) body.hidden = false;
+      b.style.display = 'none';
     }));
     $('#toGrade')?.addEventListener('click', () => renderGrade(reviewList(), renderReview));
     updateRevBadge();
@@ -1480,6 +1759,16 @@
     const maxSubj = Math.max(1, ...subjDist.map(x => x.total));
     const subjDistHTML = subjDist.map(x => `
       <div class="ms-mrow"><span>${esc(x.s)}</span><div class="bar"><i style="width:${Math.round(x.total / maxSubj * 100)}%;background:#5f9c78"></i></div><b>${x.total}${x.drill ? ` <span class="drill-n">记${x.drill}</span>` : ''}</b></div>`).join('');
+    // 各知识点掌握率：按知识点聚合（仅统计挂了该知识点的错题），按掌握率高→低排序
+    const kpStats = DB.getKeywords('kp').map(k => {
+      const es = errs.filter(e => e.kpId === k.id);
+      const total = es.length;
+      const knownN = es.filter(e => DB.isMastered(e)).length;
+      return { id: k.id, name: k.name, total, known: knownN, pct: total ? Math.round(knownN / total * 100) : 0 };
+    }).filter(x => x.total > 0).sort((a, b) => (b.pct - a.pct) || (b.total - a.total));
+    const kpMasteryHTML = kpStats.length
+      ? kpStats.map(x => `<div class="ms-mrow ms-kprow"><span title="${esc(x.name)}">${esc(x.name)}</span><div class="bar"><i style="width:${x.pct}%;background:${x.pct >= 60 ? '#5f9c78' : '#d9a441'}"></i></div><b>${x.known}/${x.total}</b></div>`).join('')
+      : '<p class="ms-empty">暂无挂知识点的错题</p>';
     return `
       <div class="ms-stat">
         <div class="ms-block dash">
@@ -1518,6 +1807,10 @@
             <div class="ms-mrow"><span>未掌握</span><div class="bar"><i style="width:${pct(unknown)}%;background:#d17878"></i></div><b>${unknown}</b></div>
             <div class="ms-mrow"><span>已掌握</span><div class="bar"><i style="width:${pct(known)}%;background:#5f9c78"></i></div><b>${known}</b></div>
           </div>
+        </div>
+        <div class="ms-block" style="margin-top:14px">
+          <p class="card-h">各知识点掌握率</p>
+          <div class="ms-mast">${kpMasteryHTML}</div>
         </div>
         <div class="ms-block" style="margin-top:14px">
           <p class="card-h">错误次数分布</p>
