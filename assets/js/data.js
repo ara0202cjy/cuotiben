@@ -240,11 +240,11 @@
    * error: {
    *   id, subject, mode:'text'|'image'|'mixed',
    *   text, images:[dataURL], image(首个,兼容旧数据), pinyin,
-   *   kpId, srcId, mastery:'unknown'|'fuzzy'|'known',
+   *   kpId, srcId, mastery:'unknown'|'known', starred, starAt,
    *   answer, createdAt,
    *   reviews: [{ date, correct:true|false }]
    * }
-   * 已掌握判定：连续答对 3 次 或 累计答对 5 次（手动标 known 也算）。
+   * 已掌握判定：走完当前题型（记忆型/稳定型）的完整推送周期且全对，或手动标 known。
    */
   function getErrors(filter) {
     let list = read(K('errors'), []);
@@ -310,10 +310,10 @@
 
   /* ---------- 复习计划（周期推送 + 掌握判定，方案：两类题型） ---------- */
   // 两类题型的推送周期（间隔单位：天）。走完整个周期且全对 → 标记已掌握，停止推送。
-  //   记忆型 drill：+5 / +10 / +20 / +40 / +80 / +160（共 6 次，最长 160 封顶）
-  //   稳定型 stable：+5 / +60 / +150（共 3 次）
-  const DRILL_IV = [5, 10, 20, 40, 80, 160];
-  const STABLE_IV = [5, 60, 150];
+  //   记忆型 drill：+3 / +10 / +20 / +40 / +80 / +160（共 6 次，最长 160 封顶）
+  //   稳定型 stable：+3 / +60 / +150（共 3 次）
+  const DRILL_IV = [3, 10, 20, 40, 80, 160];
+  const STABLE_IV = [3, 60, 150];
   // 题型挂在「知识点」上：知识点设 rType，错题通过 kpId 继承；无知识点默认稳定型。
   function getRType(e) {
     if (e && e.kpId) {

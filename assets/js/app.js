@@ -1084,39 +1084,6 @@
       .slice(0, 3);
   }
 
-  /* ---------------- 语音输入（Web Speech API，纯前端） ---------------- */
-  function startVoice(targetId) {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { toast('当前浏览器不支持语音输入，请用 Chrome / Edge，或手动输入'); return; }
-    let rec = null;
-    try { rec = new SR(); } catch (e) { toast('无法启动语音识别'); return; }
-    rec.lang = 'zh-CN';
-    rec.continuous = false;
-    rec.interimResults = false;
-    rec.maxAlternatives = 1;
-    rec.onresult = ev => {
-      let txt = '';
-      for (let i = ev.resultIndex; i < ev.results.length; i++) {
-        if (ev.results[i].isFinal) txt += ev.results[i][0].transcript;
-      }
-      txt = txt.trim();
-      const ta = document.getElementById(targetId);
-      if (ta && txt) {
-        const cur = ta.value;
-        ta.value = cur ? (cur.replace(/\s+$/, '') + ' ' + txt) : txt;
-        ta.dispatchEvent(new Event('input', { bubbles: true }));
-      }
-      toast(txt ? '语音已转成文字 ✓' : '没听清，请再说一次');
-    };
-    rec.onerror = ev => {
-      if (ev && ev.error === 'not-allowed') toast('麦克风权限被拒绝，请在浏览器设置里允许');
-      else toast('语音识别失败，请重试或手动输入');
-    };
-    rec.onend = () => { rec = null; };
-    try { rec.start(); toast('正在聆听…请说话'); }
-    catch (e) { toast('无法启动麦克风，请检查权限'); }
-  }
-
   /* ---------------- 录入错题 ---------------- */
   function openEntry(err) {
     const subjects = DB.getSubjects();
@@ -1228,11 +1195,7 @@
       ${modeSection}
       <div class="field" id="entryQField">
         <label id="entryQLabel">题干 / 错题内容</label>
-        <div class="ta-wrap">
-          <textarea class="textarea" id="entryText" placeholder="输入或粘贴题目内容…">${form.text}</textarea>
-          <button class="mic-btn" id="micQ" type="button" title="语音输入（口述题目）" aria-label="语音输入">🎤</button>
-        </div>
-        <p class="mic-tip">点 🎤 可语音口述题目（浏览器需支持语音识别，Chrome / Edge 体验最佳）</p>
+        <textarea class="textarea" id="entryText" placeholder="输入或粘贴题目内容…">${form.text}</textarea>
       </div>
       <div class="field" id="imgField"><label>图片（可一次添加多张，从相册选择，可裁剪 / 删除）</label>
         <button class="btn ghost" id="imgDrop" style="width:100%">🖼 从相册添加图片（可多选）</button>
@@ -1249,10 +1212,7 @@
         <button class="btn ghost sm" id="renameSrc" style="margin-top:8px">✎ 重命名所选来源</button></div>
       <div class="field" id="entryAnsField">
         <label>正确答案</label>
-        <div class="ta-wrap">
-          <textarea class="textarea" id="entryAnswer" placeholder="填写正确答案与解析…">${form.answer}</textarea>
-          <button class="mic-btn" id="micA" type="button" title="语音输入答案" aria-label="语音输入答案">🎤</button>
-        </div>
+        <textarea class="textarea" id="entryAnswer" placeholder="填写正确答案与解析…">${form.answer}</textarea>
       </div>
       <button class="btn" id="saveErr">${isEdit ? '保存修改' : '保存错题'}</button>`);
 
@@ -1278,9 +1238,6 @@
     }));
     $('#entryText').addEventListener('input', e => { form.text = e.target.value; refresh(); });
     $('#entryAnswer').addEventListener('input', e => (form.answer = e.target.value));
-    // 语音输入：把识别出的文字追加到对应输入框
-    $('#micQ')?.addEventListener('click', () => startVoice('entryText'));
-    $('#micA')?.addEventListener('click', () => startVoice('entryAnswer'));
     // 重命名知识点/来源：按 id 关联，所有使用它的错题会同步更新
     $('#renameKp').addEventListener('click', () => {
       if (!form.kpId) { toast('请先选择一个知识点再重命名'); return; }
@@ -1530,7 +1487,7 @@
     $('#view').innerHTML = `
       <div class="card" style="padding:14px 16px">
         <p class="card-h" style="margin-bottom:6px">复习推送计划</p>
-        <p style="font-size:12.5px;color:var(--ink-2);margin:0;line-height:1.6"><b>记忆型</b>（如字词、单词）：按 +5 / +10 / +20 / +40 / +80 / +160 天推送，共 6 次全对即掌握；<b>稳定型</b>（如概念、公式）：按 +5 / +60 / +150 天推送，共 3 次全对即掌握。中途答错则周期从头开始（+5 天重试），直到走完一个完整周期且全对。已掌握不再自动推送；在详情页可对单题「加练一次」（记忆型 +30 天 / 稳定型 +60 天额外推一次）或「标记已掌握」提前停推，也可「提前重练」提前练习。</p>
+        <p style="font-size:12.5px;color:var(--ink-2);margin:0;line-height:1.6"><b>记忆型</b>（如字词、单词）：按 +3 / +10 / +20 / +40 / +80 / +160 天推送，共 6 次全对即掌握；<b>稳定型</b>（如概念、公式）：按 +3 / +60 / +150 天推送，共 3 次全对即掌握。中途答错则周期从头开始（+3 天重试），直到走完一个完整周期且全对。已掌握不再自动推送；在详情页可对单题「加练一次」（记忆型 +30 天 / 稳定型 +60 天额外推一次）或「标记已掌握」提前停推，也可「提前重练」提前练习。</p>
       </div>
       ${due.length === 0
         ? '<div class="empty"><span class="em-ico">🌱</span>今天没有需要复习的错题，继续保持！</div>'
