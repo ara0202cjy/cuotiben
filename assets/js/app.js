@@ -83,13 +83,15 @@
   }
   function kwName(id) { const k = DB.getKeywords().find(x => x.id === id); return k ? k.name : ''; }
   // 卡片顶部统一标签：科目 → 知识点 → 来源 → 题型 → 掌握情况
-  function metaTagsHTML(e) {
-    return subjTag(e.subject)
+  // opts.subject / opts.mastery 可关闭：笔记本卡片已按科目分组、已掌握题单独折叠，无需重复展示
+  function metaTagsHTML(e, opts) {
+    const o = Object.assign({ subject: true, mastery: true }, opts || {});
+    return (o.subject ? subjTag(e.subject) : '')
       + (e.kpId ? `<span class="tag">${esc(kwName(e.kpId))}</span>` : '')
       + (e.srcId ? `<span class="tag">${esc(kwName(e.srcId))}</span>` : '')
       + (e.kpId ? (DB.getRType(e) === 'drill' ? '<span class="tag drill">记忆型</span>' : '<span class="tag stable">稳定型</span>') : '')
       + (e.starred ? '<span class="tag star">★ 重点</span>' : '')
-      + masteryDisplay(e);
+      + (o.mastery ? masteryDisplay(e) : '');
   }
   function fmtDate(iso) {
     const d = new Date(iso); const p = n => (n < 10 ? '0' : '') + n;
@@ -167,7 +169,7 @@
                 <div class="rev-item">
                   <div class="rev-due">${dueLabel(e)}</div>
                   <div class="rev-card">
-                    <div class="item-top">${metaTagsHTML(e)}
+                    <div class="item-top">${metaTagsHTML(e, { mastery: false })}
                       <button class="item-edit" data-edit="${e.id}" title="编辑 / 删除" aria-label="编辑">
                         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
                       </button>
@@ -187,7 +189,7 @@
                 <div class="rev-item">
                   <div class="rev-due">${dueLabel(e)}</div>
                   <div class="rev-card">
-                    <div class="item-top">${metaTagsHTML(e)}
+                    <div class="item-top">${metaTagsHTML(e, { mastery: false })}
                       <button class="redo-out" data-del-redo="${e.id}" title="移出重练（不删题库）" aria-label="移出重练">移出</button>
                       <button class="item-edit" data-edit="${e.id}" title="编辑 / 删除" aria-label="编辑">
                         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
@@ -272,7 +274,7 @@
         ${withDel ? `<button class="item-edit" data-edit="${e.id}" title="编辑 / 删除" aria-label="编辑"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>` : ''}
         <div class="item-top">
           ${selectable ? `<input type="checkbox" class="item-check" data-id="${e.id}" ${selected ? 'checked' : ''} aria-label="选择"/>` : ''}
-          ${metaTagsHTML(e)}
+          ${metaTagsHTML(e, { subject: false, mastery: false })}
         </div>
         ${q ? `<div class="item-q">${q}</div>` : ''}
         ${hasImg ? imgs.map(s => `<img class="item-img zoomable" src="${s}" alt=""/>`).join('') : ''}
@@ -1548,7 +1550,7 @@
             <div class="rev-item">
               <div class="rev-due">${dueLabel(e)}</div>
               <div class="rev-card">
-                <div class="item-top">${metaTagsHTML(e)}
+                <div class="item-top">${metaTagsHTML(e, { mastery: false })}
                   <button class="item-edit" data-edit="${e.id}" title="编辑 / 删除" aria-label="编辑">
                     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
                   </button>
@@ -1672,7 +1674,7 @@
     const hasAns = !!(e.answer && String(e.answer).trim());
     return `
       <div class="grade-item" data-id="${e.id}">
-        <div class="grade-top">${metaTagsHTML(e)}</div>
+        <div class="grade-top">${metaTagsHTML(e, { mastery: false })}</div>
         ${q ? `<div class="grade-q">${q}</div>` : ''}
         ${imgs.map(s => `<img class="grade-img zoomable" src="${s}" alt=""/>`).join('')}
         <div class="grade-ans"${hasAns ? ' style="display:none"' : ''}><span class="ga-k">答案：</span>${e.answer || '（未填写答案）'}</div>
