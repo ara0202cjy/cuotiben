@@ -36,7 +36,7 @@
     next.onclick = ev => { ev.stopPropagation(); show(idx + 1); };
   }
 
-  const state = { view: 'home', subject: '全部', filter: {}, expanded: {}, mastExpanded: {}, selectMode: false, selected: new Set(), mineFilter: { subject: '全部', kpId: null, srcId: null }, mineStatOpen: true, search: '', sort: 'created', selfTest: true };
+  const state = { view: 'home', subject: '全部', filter: {}, expanded: {}, mastExpanded: {}, selectMode: false, selected: new Set(), mineFilter: { subject: '全部', kpId: null, srcId: null }, mineStatOpen: true, search: '', sort: 'created', selfTest: true, revTab: 'due' };
   // 练习队列（选题重练）已持久化到账户存储并随云端同步，统一经 DB 读写（不再仅存内存）
   const getPractice = () => DB.getPracticeSession() || [];
   const setPractice = arr => DB.setPracticeSession(arr);
@@ -44,6 +44,55 @@
   const getRedo = () => DB.getRedoList() || [];
   const addRedo = ids => DB.addToRedo(ids);
   const delRedo = id => DB.removeFromRedo(id);
+
+  /* ---------------- 今日概览 / 统一练习队列 ---------------- */
+  // 今天零点（用于判断「逾期」与「今日已批」）
+  function startOfToday() { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); }
+  // 仍在攻克中的重练题（已掌握的不再出现在重练队列里）
+  function redoDueList() {
+    return getRedo().map(id => DB.getError(id)).filter(e => e && !DB.isMastered(e));
+  }
+  // 每道题的来源标记：{ due: 到期, redo: 重练, practice: 加练 }
+  // 同一道题既到期又在重练清单里时只显示一次，但两个标记都保留
+  function sourceMap() {
+    const nowT = Date.now(), m = new Map();
+    const put = (id, k) => { const o = m.get(id) || {}; o[k] = true; m.set(id, o); };
+    DB.dueReviews().forEach(e => {
+      put(e.id, 'due');
+      if (e.practiceOnce && e.practiceOnce.due && e.practiceOnce.due <= nowT) put(e.id, 'practice');
+    });
+    redoDueList().forEach(e => put(e.id, 'redo'));
+    return m;
+  }
+  // 来源小标签（到期 / 加练 / 重练）；lean=true 时只显示「加练」
+  // 单一来源的列表里「到期/重练」与上方标题重复，只在混合列表（全部）里显示
+  function srcTagsHTML(e, sm, lean) {
+    const o = (sm || sourceMap()).get(e.id) || {};
+    let h = '';
+    if (!lean && o.due) h += '<span class="tag src-due">到期</span>';
+    if (o.practice) h += '<span class="tag src-practice">加练</span>';
+    if (!lean && o.redo) h += '<span class="tag src-redo">重练</span>';
+    return h;
+  }
+  // 复习页某个切换标签下的题目：due=到期 / redo=重练 / all=两者合并去重
+  function revListFor(tab) {
+    const due = DB.dueReviews();
+    if (tab === 'redo') return redoDueList();
+    if (tab === 'all') {
+      const ids = new Set(due.map(e => e.id));
+      return due.concat(redoDueList().filter(e => !ids.has(e.id)));
+    }
+    return due;
+  }
+  // 今日已批题数（按错题去重：同一道题今天批了两次只算一道）
+  function doneTodayCount(errs) {
+    const t0 = startOfToday(), ids = new Set();
+    errs.forEach(e => (e.reviews || []).forEach(r => {
+      const t = new Date(r.date).getTime();
+      if (!isNaN(t) && t >= t0) ids.add(e.id);
+    }));
+    return ids.size;
+  }
 
   /* ---------------- 通用 UI ---------------- */
   function toast(msg) {
@@ -138,17 +187,27 @@
   $('#topbarSettings').addEventListener('click', openSettings);
   $$('.tab[data-view]').forEach(t => t.addEventListener('click', () => setView(t.dataset.view)));
 
-  /* ---------------- 首页（紧凑：标题 + 三统计 + 今日需要复习） ---------------- */
+  /* ---------------- 首页（今日概览：只报数量和入口，题目统一去复习页练） ---------------- */
   function renderHome() {
     const errs = DB.getErrors();
-    const redoIds = getRedo();
-    // 重练题已在「错题重练」专区展示，从「需要复习」里排除，避免两处重复提示
-    const due = DB.dueReviews().filter(e => !redoIds.includes(e.id));
+    const due = DB.dueReviews();
+    const redoDue = redoDueList();
     const revCount = due.length;
     const known = errs.filter(e => DB.isMastered(e)).length;
-    // 错题重练板块：手动加入即立即可见（不受自然到期限制）；只展示仍在攻克中的题（已掌握的不再需要重练）
-    const redoDue = redoIds.map(id => DB.getError(id)).filter(Boolean)
-      .filter(e => !DB.isMastered(e));
+    const starN = errs.filter(e => e.starred).length;
+    // 今日进度：今天已批过的题（按错题去重）+ 仍待批的到期题
+    const t0 = startOfToday();
+    const doneN = doneTodayCount(errs);
+    const totalToday = doneN + revCount;
+    const pct = totalToday ? Math.min(100, Math.round(doneN / totalToday * 100)) : 0;
+    const overdueN = due.filter(e => DB.nextDueDate(e) < t0).length;
+    // 学科构成：一眼看出今天哪科最多
+    const bySubj = {};
+    due.forEach(e => { bySubj[e.subject] = (bySubj[e.subject] || 0) + 1; });
+    const subjLine = Object.keys(bySubj)
+      .sort((a, b) => bySubj[b] - bySubj[a])
+      .map(s => `${esc(s)} <b>${bySubj[s]}</b>`).join(' · ');
+    const allDone = !revCount && !redoDue.length;
 
     $('#view').innerHTML = `
       <div class="hero compact">
@@ -161,66 +220,37 @@
           <div class="stat"><div class="num">${known}</div><div class="lab">已掌握</div></div>
         </div>
       </div>
-      <div class="card" style="margin-top:12px;padding:14px 16px">
-        <p class="card-h" style="margin-bottom:8px">今日需要复习 <span style="color:var(--ink-2);font-weight:400">（${revCount} 道）</span></p>
-        ${revCount
-          ? `<div id="homeRevList">
-              ${due.map(e => `
-                <div class="rev-item">
-                  <div class="rev-due">${dueLabel(e)}</div>
-                  <div class="rev-card">
-                    <div class="item-top">${metaTagsHTML(e, { mastery: false })}
-                      <button class="item-edit" data-edit="${e.id}" title="编辑 / 删除" aria-label="编辑">
-                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-                      </button>
-                    </div>
-                    ${errorExpandHTML(e, true)}
-                  </div>
-                </div>`).join('')}
-            </div>`
-          : '<div class="empty" style="padding:6px 0">今天没有到期要复习的错题，做得真棒 🎉</div>'}
-        <button class="btn small ghost" id="goReview" style="width:100%;margin-top:10px">去复习页逐题批改 ›</button>
-      </div>
-      <div class="card" style="margin-top:12px;padding:14px 16px">
-        <p class="card-h" style="margin-bottom:8px">错题重练 <span style="color:var(--ink-2);font-weight:400">（${redoDue.length} 道 · 手动加入集中练）</span></p>
-        ${redoDue.length
-          ? `<div id="homeRedoList">
-              ${redoDue.map(e => `
-                <div class="rev-item">
-                  <div class="rev-due">${dueLabel(e)}</div>
-                  <div class="rev-card">
-                    <div class="item-top">${metaTagsHTML(e, { mastery: false })}
-                      <button class="redo-out" data-del-redo="${e.id}" title="移出重练（不删题库）" aria-label="移出重练">移出</button>
-                      <button class="item-edit" data-edit="${e.id}" title="编辑 / 删除" aria-label="编辑">
-                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-                      </button>
-                    </div>
-                    ${errorExpandHTML(e, true)}
-                  </div>
-                </div>`).join('')}
-            </div>
-            <button class="btn small ghost" id="goRedoGrade" style="width:100%;margin-top:10px">逐题批改 ›</button>`
-          : '<div class="empty" style="padding:6px 0">还没有重练题。去「笔记本」勾选错题点「加入重练」，即可在此集中练习：对的按周期进入下一轮，错的次日再推，直到走完一个完整周期全对。</div>'}
+
+      <div class="card today-card">
+        <div class="today-head">
+          <div class="today-ring" style="--p:${pct}%">
+            <div class="today-ring-in">${totalToday ? `<b>${doneN}</b><i>/${totalToday}</i>` : '<b>✓</b>'}</div>
+          </div>
+          <div class="today-info">
+            <p class="today-h">今日待复习 <b>${revCount}</b> 道</p>
+            <p class="today-sub">${revCount
+              ? (overdueN ? `其中已逾期 <b>${overdueN}</b> 道，建议先练` : '都在今天到期，按顺序练即可')
+              : (doneN ? '今天的都练完了，明天见 🌿' : '今天没有到期要复习的错题 🎉')}</p>
+            ${subjLine ? `<p class="today-subj">${subjLine}</p>` : ''}
+          </div>
+        </div>
+        <div class="today-mini">
+          <span>错题重练 <b>${redoDue.length}</b> 道</span>
+          <span class="dot">·</span>
+          <span>★ 重点 <b>${starN}</b> 道</span>
+        </div>
+        <div class="today-actions">
+          <button class="btn" id="startToday">开始今日复习</button>
+          <button class="btn ghost" id="startRedo">错题重练</button>
+        </div>
+        ${errs.length === 0
+          ? '<p class="today-done" style="color:var(--ink-3)">还没有错题，点底部「＋」录第一道吧</p>'
+          : (allDone ? '<p class="today-done">今日已全部完成 ✓ 明天继续保持</p>' : '')}
       </div>`;
-    $('#goReview')?.addEventListener('click', () => setView('review'));
-    if (revCount) {
-      $$('#homeRevList .item-edit').forEach(b => b.addEventListener('click', ev => {
-        ev.stopPropagation(); openDetail(b.dataset.edit);
-      }));
-    }
-    // 错题重练板块交互：看答案 / 进详情 / 移出（不动题库） / 逐题批改
-    if (redoDue.length) {
-      $$('#homeRedoList .item-edit').forEach(b => b.addEventListener('click', ev => {
-        ev.stopPropagation(); openDetail(b.dataset.edit);
-      }));
-      $$('#homeRedoList .redo-out').forEach(b => b.addEventListener('click', ev => {
-        ev.stopPropagation();
-        delRedo(b.dataset.delRedo);
-        toast('已移出重练板块（题库与学习记录不变）');
-        renderHome();
-      }));
-      $('#goRedoGrade')?.addEventListener('click', () => renderGrade(redoDue, renderHome, { redo: true }));
-    }
+
+    // 两个入口都进复习页，只是默认落在不同的切换标签上
+    $('#startToday').addEventListener('click', () => { state.revTab = revCount ? 'due' : (redoDue.length ? 'redo' : 'due'); setView('review'); });
+    $('#startRedo').addEventListener('click', () => { state.revTab = redoDue.length ? 'redo' : 'due'; setView('review'); });
   }
   // 统一展开详情块：题目全文 + 图片 + 收录时间 + 做题记录（答案不在卡片展示，仅批改页可见）
   function errorExpandHTML(e, showImg = true) {
@@ -1481,51 +1511,85 @@
     return due.concat(extra);
   }
 
+  // 复习页 = 唯一练习中心：待复习（自然到期 + 加练）与错题重练合并成一套队列
   function renderReview() {
-    const due = reviewList();
+    const tab = state.revTab || 'due';
+    const sm = sourceMap();
+    const list = revListFor(tab);
+    const dueN = DB.dueReviews().length;
+    const redoN = redoDueList().length;
+    const allN = new Set(DB.dueReviews().map(e => e.id).concat(redoDueList().map(e => e.id))).size;
     const mastered = DB.getErrors().filter(e => DB.isMastered(e));
-    $('#view').innerHTML = `
-      <div class="card" style="padding:14px 16px">
-        <p class="card-h" style="margin-bottom:6px">复习推送计划</p>
-        <p style="font-size:12.5px;color:var(--ink-2);margin:0;line-height:1.6"><b>记忆型</b>（如字词、单词）：按 +3 / +10 / +20 / +40 / +80 / +160 天推送，共 6 次全对即掌握；<b>稳定型</b>（如概念、公式）：按 +3 / +60 / +150 天推送，共 3 次全对即掌握。中途答错则周期从头开始（+3 天重试），直到走完一个完整周期且全对。已掌握不再自动推送；在详情页可对单题「加练一次」（记忆型 +30 天 / 稳定型 +60 天额外推一次）或「标记已掌握」提前停推，也可「提前重练」提前练习。</p>
-      </div>
-      ${due.length === 0
-        ? '<div class="empty"><span class="em-ico">🌱</span>今天没有需要复习的错题，继续保持！</div>'
-        : `
-        <div class="rev-toolbar">
-          <div class="rev-count">🔔 今日待复习 <b>${due.length}</b> 道</div>
-          <div class="rev-actions">
-            <button class="btn small ghost" id="selfTestBtn">${state.selfTest ? '自测模式：开' : '自测模式：关'}</button>
-            <button class="btn small" id="toGrade">批改</button>
-          </div>
-        </div>
-        <p class="rev-tip">${state.selfTest
-          ? '自测模式已开启：答案默认遮住，先自己回想，点「显示答案」核对，再进批改记录对错。'
-          : '自测模式已关闭：答案直接显示，适合快速核对。'}</p>
-        <div id="revList">
-          ${due.map(e => `
-            <div class="rev-item">
-              <div class="rev-due">${dueLabel(e)}</div>
-              <div class="rev-card">
-                <div class="item-top">${metaTagsHTML(e, { mastery: false })}
-                  <button class="item-edit" data-edit="${e.id}" title="编辑 / 删除" aria-label="编辑">
-                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-                  </button>
-                </div>
-                ${reviewExpandHTML(e)}
+    const emptyText = tab === 'redo'
+      ? '还没有重练题。去「笔记本」勾选错题点「加入重练」，就会出现在这里。'
+      : (tab === 'all' ? '暂时没有需要练习的题，继续保持！' : '今天没有到期要复习的错题，继续保持！');
+    const cards = list.map(e => {
+      const o = sm.get(e.id) || {};
+      return `
+        <div class="rev-item">
+          <div class="rev-due${o.due ? '' : ' is-redo'}">${o.due ? dueLabel(e) : '手动加入重练 · 集中练习'}</div>
+          <div class="rev-card">
+            <div class="item-top">
+              ${srcTagsHTML(e, sm, tab !== 'all')}${metaTagsHTML(e, { mastery: false })}
+              <div class="item-acts">
+                ${o.redo ? `<button class="redo-out" data-del-redo="${e.id}" title="移出重练（不删题库）" aria-label="移出重练">移出</button>` : ''}
+                <button class="item-edit" data-edit="${e.id}" title="编辑 / 删除" aria-label="编辑">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                </button>
               </div>
-            </div>`).join('')}
-        </div>`}
-      ${mastered.length ? `<div class="card" style="margin-top:14px;padding:14px 16px">
-        <p class="card-h" style="margin-bottom:6px">已掌握（已停止推送）</p>
-        <p style="font-size:12.5px;color:var(--ink-2);margin:0;line-height:1.6">共 ${mastered.length} 道已实现稳定掌握，不再推送；可在错题本中按需删减。</p>
+            </div>
+            ${reviewExpandHTML(e)}
+          </div>
+        </div>`;
+    }).join('');
+
+    $('#view').innerHTML = `
+      <div class="rev-toolbar">
+        <div class="rev-count">待复习 <b>${dueN}</b> · 重练 <b>${redoN}</b></div>
+        <div class="rev-actions">
+          <button class="btn small ghost" id="selfTestBtn">${state.selfTest ? '自测：开' : '自测：关'}</button>
+          <button class="btn small" id="toGrade"${list.length ? '' : ' disabled'}>批改</button>
+        </div>
+      </div>
+      <div class="seg-tabs" id="revTabs">
+        <button data-tab="due" class="${tab === 'due' ? 'on' : ''}">待复习<i>${dueN}</i></button>
+        <button data-tab="redo" class="${tab === 'redo' ? 'on' : ''}">错题重练<i>${redoN}</i></button>
+        <button data-tab="all" class="${tab === 'all' ? 'on' : ''}">全部<i>${allN}</i></button>
+      </div>
+      <p class="rev-tip">${tab === 'redo'
+        ? '重练题来自你手动勾选：答对即移出重练清单，答错明天再推，直到全对。'
+        : (state.selfTest
+          ? '自测模式已开启：答案默认遮住，先自己回想，点「显示答案」核对，再进批改记录对错。'
+          : '自测模式已关闭：答案直接显示，适合快速核对。')}</p>
+      ${list.length
+        ? `<div id="revList">${cards}</div>`
+        : `<div class="empty"><span class="em-ico">🌱</span>${emptyText}</div>`}
+      <details class="plan-details">
+        <summary>复习推送计划 · 点开看规则</summary>
+        <p><b>记忆型</b>（如字词、单词）：按 +3 / +10 / +20 / +40 / +80 / +160 天推送，共 6 次全对即掌握；<b>稳定型</b>（如概念、公式）：按 +3 / +60 / +150 天推送，共 3 次全对即掌握。中途答错则周期从头开始（+3 天重试），直到走完一个完整周期且全对。已掌握不再自动推送；在详情页可对单题「加练一次」（记忆型 +30 天 / 稳定型 +60 天额外推一次）或「标记已掌握」提前停推，也可「提前重练」提前练习。</p>
+      </details>
+      ${mastered.length ? `<details class="plan-details">
+        <summary>已掌握 ${mastered.length} 道（已停止推送）</summary>
         <div class="mastered-list">
           ${mastered.slice(0, 8).map(e => `<span class="tag">${esc(e.subject)} · ${esc(kwName(e.kpId)) || '错题'}</span>`).join('')}
+          ${mastered.length > 8 ? `<span class="tag">等 ${mastered.length} 道</span>` : ''}
         </div>
-      </div>` : ''}
+      </details>` : ''}
     `;
     $$('#revList .item-edit').forEach(b => b.addEventListener('click', ev => {
       ev.stopPropagation(); openDetail(b.dataset.edit);
+    }));
+    // 移出重练（只动重练清单，不动题库与学习记录）
+    $$('#revList .redo-out').forEach(b => b.addEventListener('click', ev => {
+      ev.stopPropagation();
+      delRedo(b.dataset.delRedo);
+      toast('已移出重练清单（题库与学习记录不变）');
+      renderReview();
+    }));
+    // 切换 待复习 / 错题重练 / 全部
+    $$('#revTabs button').forEach(b => b.addEventListener('click', () => {
+      state.revTab = b.dataset.tab;
+      renderReview();
     }));
     // 自测模式开关：控制答案是否默认遮住
     $('#selfTestBtn')?.addEventListener('click', () => { state.selfTest = !state.selfTest; renderReview(); });
@@ -1536,7 +1600,7 @@
       if (body) body.hidden = false;
       b.style.display = 'none';
     }));
-    $('#toGrade')?.addEventListener('click', () => renderGrade(reviewList(), renderReview));
+    $('#toGrade')?.addEventListener('click', () => renderGrade(list, renderReview));
     updateRevBadge();
   }
 
@@ -1577,15 +1641,18 @@
     const backFn = back || (() => renderReview());
     if (!due.length) { backFn(); toast('没有可重练的错题'); return; }
     const gTitle = (opts && opts.redo) ? '重练批改' : (back === renderList ? '重练模式' : '批改模式');
+    const sm = sourceMap();
+    // 混合队列（既有到期又有重练）才需要在题卡上标来源，单一来源时与标题重复
+    const gradeMixed = due.some(e => (sm.get(e.id) || {}).due) && due.some(e => (sm.get(e.id) || {}).redo);
     $('#view').innerHTML = `
       <div class="grade-bar">
         <button class="btn ghost small" id="gradeBack">‹ 返回</button>
         <span class="grade-title">${gTitle} · 共 ${due.length} 道</span>
         <button class="btn small" id="gradeSave">保存批改</button>
       </div>
-      <p class="grade-tip">先凭记忆自测，需要核对时点「显示答案」，再勾选「对 / 错」；点「未练习」表示本次不练习，该错题仍保留在复习栏（不记录、不推送）。</p>
+      <p class="grade-tip">先凭记忆自测，需要核对时点「显示答案」，再勾选「对 / 错」；点「未练习」表示本次不练习，该错题仍保留在复习栏（不记录、不推送）。重练清单里的题答对后会自动移出重练。</p>
       <div id="gradeList">
-        ${due.map(gradeItemHTML).join('')}
+        ${due.map(e => gradeItemHTML(e, sm, !gradeMixed)).join('')}
       </div>`;
     const sel = {};
     $$('#gradeList .grade-item').forEach(card => {
@@ -1606,32 +1673,39 @@
     }));
     $('#gradeBack').addEventListener('click', backFn);
     $('#gradeSave').addEventListener('click', () => {
-      let ok = 0, bad = 0, skip = 0, none = 0;
+      let ok = 0, bad = 0, skip = 0, none = 0, masteredNow = 0;
+      const redoSet = new Set(redoDueList().map(e => e.id));   // 批改前的重练清单
+      const wasMastered = new Set(due.filter(e => DB.isMastered(e)).map(e => e.id));
       due.forEach(e => {
         if (!(e.id in sel)) { none++; return; }
         const v = sel[e.id];
         if (v === 'skip') { skip++; return; }   // 未练习：视为未做，保留在复习栏，不记录不推送（与「未选择」一致）
         DB.recordReview(e.id, v === 'ok');
-        if (opts && opts.redo && v === 'ok') {
-          // 答对即移出重练板块，回归正常周期推送流（不删题库、不丢学习记录；其余节点推送日期不变）
-          delRedo(e.id);
-        }
+        // 混合队列：无论来自哪个标签，只要这道题在重练清单里且这次答对，就移出重练（不删题库、不丢记录）
+        if (v === 'ok' && redoSet.has(e.id)) delRedo(e.id);
+        if (v === 'ok' && !wasMastered.has(e.id) && DB.isMastered(DB.getError(e.id))) masteredNow++;
         if (v === 'ok') ok++; else bad++;
       });
-      if (!(opts && opts.redo)) setPractice([]);   // 非重练模式：练习队列随批改清空；重练模式保留 redolist，错的题次日仍留在板块
+      setPractice([]);   // 练习队列随批改清空；重练清单只按「答对」或手动「移出」变化
       backFn();
-      toast(`已批改 ${ok + bad} 道（对 ${ok} / 错 ${bad}${(skip || none) ? ` · 未练习 ${skip} 道、未选 ${none} 道 保留在复习栏` : ''}）· 推送周期已更新`);
+      const streak = computeStreak(DB.getErrors());
+      const extra = [
+        masteredNow ? `新掌握 ${masteredNow} 道` : '',
+        streak ? `连续打卡 ${streak} 天` : '',
+        (skip || none) ? `未练 ${skip} 道、未选 ${none} 道 保留` : ''
+      ].filter(Boolean).join(' · ');
+      toast(`今日小结：对 ${ok} / 错 ${bad}${extra ? ' · ' + extra : ''} · 推送周期已更新`);
     });
   }
   // 单题批改卡片：折叠题面 + 显示答案 + 对/错选择
-  function gradeItemHTML(e) {
+  function gradeItemHTML(e, sm, lean) {
     const isP = isDictError(e);
     const imgs = imgList(e);
     const q = (isP ? (e.pinyin || e.text || '') : (e.text || '')).slice(0, 120);
     const hasAns = !!(e.answer && String(e.answer).trim());
     return `
       <div class="grade-item" data-id="${e.id}">
-        <div class="grade-top">${metaTagsHTML(e, { mastery: false })}</div>
+        <div class="grade-top">${srcTagsHTML(e, sm, lean)}${metaTagsHTML(e, { mastery: false })}</div>
         ${q ? `<div class="grade-q">${q}</div>` : ''}
         ${imgs.map(s => `<img class="grade-img zoomable" src="${s}" alt=""/>`).join('')}
         <div class="grade-ans"${hasAns ? ' style="display:none"' : ''}><span class="ga-k">答案：</span>${e.answer || '（未填写答案）'}</div>
