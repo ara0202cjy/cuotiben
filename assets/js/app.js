@@ -36,7 +36,7 @@
     next.onclick = ev => { ev.stopPropagation(); show(idx + 1); };
   }
 
-  const state = { view: 'home', subject: '全部', filter: {}, expanded: {}, mastExpanded: {}, selectMode: false, selected: new Set(), mineFilter: { subject: '全部', kpId: null, srcId: null }, mineStatOpen: true, search: '', sort: 'created', selfTest: false, revTab: 'due', revFilter: { subjects: [], kpIds: [], created: [], due: [] } };
+  const state = { view: 'home', subject: '全部', filter: {}, expanded: {}, mastExpanded: {}, selectMode: false, selected: new Set(), mineFilter: { subject: '全部', kpId: null, srcId: null }, mineStatOpen: true, search: '', sort: 'created', selfTest: false, revTab: 'due', revFilter: { subjects: [], kpIds: [], mastery: [], wrong: [], created: [], due: [] } };
   // 练习队列（选题重练）已持久化到账户存储并随云端同步，统一经 DB 读写（不再仅存内存）
   const getPractice = () => DB.getPracticeSession() || [];
   const setPractice = arr => DB.setPracticeSession(arr);
@@ -99,11 +99,14 @@
   /* ---------- 复习页筛选：科目 / 知识点 / 添加日期 / 到期日期 ---------- */
   const REV_CREATED = [['today', '今天'], ['7', '近 7 天'], ['30', '近 30 天'], ['older', '更早']];
   const REV_DUE = [['overdue', '已逾期'], ['today', '今天到期'], ['week', '未来 7 天'], ['later', '更远']];
-  // 是否有筛选条件生效（按「组」计数：科目/知识点/添加日期/到期日期各算 1 组）
+  const REV_MASTERY = [['unknown', '未掌握'], ['known', '已掌握']];
+  const REV_WRONG = [['0', '0 次'], ['1', '1 次'], ['2', '2 次'], ['3p', '≥3 次']];
+  // 空筛选（全部不限）
+  function emptyRevFilter() { return { subjects: [], kpIds: [], mastery: [], wrong: [], created: [], due: [] }; }
+  // 是否有筛选条件生效（按「组」计数，每组最多算 1）
   function revFilterActive(f) {
     f = f || state.revFilter || {};
-    return ((f.subjects || []).length ? 1 : 0) + ((f.kpIds || []).length ? 1 : 0)
-      + ((f.created || []).length ? 1 : 0) + ((f.due || []).length ? 1 : 0);
+    return ['subjects', 'kpIds', 'mastery', 'wrong', 'created', 'due'].filter(k => (f[k] || []).length).length;
   }
   // 同一组内多选是「或」的关系，不同组之间是「且」的关系
   function matchRevFilter(e) {
@@ -113,6 +116,21 @@
     if (subs.length && !subs.includes(e.subject)) return false;
     const kps = f.kpIds || [];
     if (kps.length && !kps.includes(e.kpId)) return false;
+    // 掌握程度：按数据里的 mastery 判定（未掌握 / 已掌握）
+    const ma = f.mastery || [];
+    if (ma.length) {
+      const k = DB.isMastered(e) ? 'known' : 'unknown';
+      if (!ma.includes(k)) return false;
+    }
+    // 错误次数：复习记录里判错的条数
+    const wr = f.wrong || [];
+    if (wr.length) {
+      const bad = (e.reviews || []).filter(r => !r.correct).length;
+      const hit = wr.some(k => k === '0' ? bad === 0
+        : k === '1' ? bad === 1
+          : k === '2' ? bad === 2 : bad >= 3);
+      if (!hit) return false;
+    }
     // 添加日期：命中任一选中区间即可
     const cr = f.created || [];
     if (cr.length) {
@@ -149,6 +167,10 @@
     if (cLab.length) out.push('添加：' + cLab.join(' / '));
     const dLab = (f.due || []).map(k => (REV_DUE.find(x => x[0] === k) || [])[1]).filter(Boolean);
     if (dLab.length) out.push('到期：' + dLab.join(' / '));
+    const mLab = (f.mastery || []).map(k => (REV_MASTERY.find(x => x[0] === k) || [])[1]).filter(Boolean);
+    if (mLab.length) out.push(mLab.join(' / '));
+    const wLab = (f.wrong || []).map(k => (REV_WRONG.find(x => x[0] === k) || [])[1]).filter(Boolean);
+    if (wLab.length) out.push('错误次数：' + wLab.join(' / '));
     return out;
   }
   // 今日已批题数（按错题去重：同一道题今天批了两次只算一道）
@@ -1681,7 +1703,7 @@
     // 筛选：科目 / 知识点 / 添加日期 / 到期日期
     $('#revFilterBtn')?.addEventListener('click', openRevFilter);
     $('#revFClear')?.addEventListener('click', () => {
-      state.revFilter = { subjects: [], kpIds: [], created: [], due: [] };
+      state.revFilter = emptyRevFilter();
       renderReview();
       toast('已清除复习筛选');
     });
@@ -1712,10 +1734,8 @@
   }
   function openRevFilter() {
     const src = state.revFilter || {};
-    const tmp = {
-      subjects: [...(src.subjects || [])], kpIds: [...(src.kpIds || [])],
-      created: [...(src.created || [])], due: [...(src.due || [])]
-    };
+    const tmp = emptyRevFilter();
+    ['subjects', 'kpIds', 'mastery', 'wrong', 'created', 'due'].forEach(k => { tmp[k] = [...(src[k] || [])]; });
     const errs = DB.getErrors();
     // 科目列表 = 已定义科目 ∪ 错题里实际出现的科目（避免历史/导入数据选不到）
     const subs = [...new Set([...DB.getSubjects(), ...errs.map(e => e.subject).filter(Boolean)])];
@@ -1723,12 +1743,20 @@
       <button class="close-x">✕</button>
       <h3>筛选复习题</h3>
       <p class="f-hint" style="margin:0 2px 10px">同一组内可多选（满足任一即可），不同组之间同时生效。</p>
-      <div class="f-row">
+      <div class="f-row f-col">
         <div class="f-group"><label>科目（可多选）</label><div class="kw-box" id="rfSubj">
           <span class="kw ${tmp.subjects.length ? '' : 'active'}" data-v="">不限</span>
           ${subs.map(s => `<span class="kw ${tmp.subjects.includes(s) ? 'active' : ''}" data-v="${esc(s)}">${esc(s)}<span class="cnt">${errs.filter(e => e.subject === s).length}</span></span>`).join('')}
         </div></div>
         <div class="f-group"><label>知识点（可多选）</label><div class="kw-box" id="rfKp">${revKpChipsHTML(tmp.subjects, tmp.kpIds)}</div></div>
+        <div class="f-group"><label>掌握程度（可多选）</label><div class="kw-box" id="rfMastery">
+          <span class="kw ${tmp.mastery.length ? '' : 'active'}" data-v="">不限</span>
+          ${REV_MASTERY.map(o => `<span class="kw ${tmp.mastery.includes(o[0]) ? 'active' : ''}" data-v="${o[0]}">${o[1]}</span>`).join('')}
+        </div></div>
+        <div class="f-group"><label>错误次数（可多选）</label><div class="kw-box" id="rfWrong">
+          <span class="kw ${tmp.wrong.length ? '' : 'active'}" data-v="">不限</span>
+          ${REV_WRONG.map(o => `<span class="kw ${tmp.wrong.includes(o[0]) ? 'active' : ''}" data-v="${o[0]}">${o[1]}</span>`).join('')}
+        </div></div>
         <div class="f-group"><label>添加日期（可多选）</label><div class="kw-box" id="rfCreated">
           <span class="kw ${tmp.created.length ? '' : 'active'}" data-v="">不限</span>
           ${REV_CREATED.map(o => `<span class="kw ${tmp.created.includes(o[0]) ? 'active' : ''}" data-v="${o[0]}">${o[1]}</span>`).join('')}
@@ -1739,7 +1767,7 @@
         </div></div>
       </div>
       <p class="f-hint">只影响复习页显示哪些题，不改动任何做题记录；筛完可直接点「批改」整组练习。</p>
-      <div class="btn-row">
+      <div class="btn-row f-actions">
         <button class="btn ghost" id="rfReset">重置</button>
         <button class="btn" id="rfApply">应用</button>
       </div>`);
@@ -1773,10 +1801,12 @@
       bindMulti('rfKp', 'kpIds');
     });
     bindMulti('rfKp', 'kpIds');
+    bindMulti('rfMastery', 'mastery');
+    bindMulti('rfWrong', 'wrong');
     bindMulti('rfCreated', 'created');
     bindMulti('rfDue', 'due');
     body.querySelector('#rfReset').addEventListener('click', () => {
-      state.revFilter = { subjects: [], kpIds: [], created: [], due: [] };
+      state.revFilter = emptyRevFilter();
       closeSheet(); renderReview(); toast('已重置筛选');
     });
     body.querySelector('#rfApply').addEventListener('click', () => {
