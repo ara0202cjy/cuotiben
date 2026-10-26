@@ -777,7 +777,9 @@
     const hasFilter = !!((f.kpIds || []).length || (f.srcIds || []).length || mSel.length || (f.wrong || []).length
       || (f.due || []).length || f.from || f.to
       || (state.subject && state.subject !== '全部') || (state.search && state.search.trim()));
-    const total = DB.getErrors().length;
+    const total = (state.subject && state.subject !== '全部')
+      ? DB.getErrors({ subject: state.subject }).length
+      : DB.getErrors().length;
     const allOpen = subjects.length > 0 && subjects.every(s => expanded[s]);
 
     // 筛选 / 搜索模式下，只展示「有符合筛选错题」的学科笔记本，保持界面紧凑
@@ -1094,6 +1096,8 @@
   }
   // 取某学科在当前筛选下匹配的错题（笔记本渲染与勾选共用）
   function listSubjectErrs(s) {
+    // 学科筛选为单选：选了某一科就只显示那一本（与面板「定位到某本」的提示一致）
+    if (state.subject && state.subject !== '全部' && s !== state.subject) return [];
     return DB.getErrors({ subject: s }).filter(matchBookFilter);
   }
 
