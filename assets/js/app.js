@@ -36,7 +36,7 @@
     next.onclick = ev => { ev.stopPropagation(); show(idx + 1); };
   }
 
-  const state = { view: 'home', subject: '全部', filter: emptyBookFilter(), expanded: {}, mastExpanded: {}, selectMode: false, selected: new Set(), mineFilter: { subject: '全部', kpId: null, srcId: null }, mineStatOpen: true, search: '', sort: 'created', selfTest: false, revTab: 'due', revFilter: { subjects: [], kpIds: [], mastery: [], wrong: [], created: [], due: [] } };
+  const state = { view: 'home', subject: '全部', filter: emptyBookFilter(), expanded: {}, mastExpanded: {}, selectMode: false, selected: new Set(), mineFilter: { subject: '全部', kpId: null, srcId: null, added: null }, mineStatOpen: true, search: '', sort: 'created', selfTest: false, revTab: 'due', revFilter: { subjects: [], kpIds: [], mastery: [], wrong: [], created: [], due: [] } };
   // 练习队列（选题重练）已持久化到账户存储并随云端同步，统一经 DB 读写（不再仅存内存）
   const getPractice = () => DB.getPracticeSession() || [];
   const setPractice = arr => DB.setPracticeSession(arr);
@@ -101,6 +101,8 @@
   const REV_DUE = [['overdue', '已逾期'], ['today', '今天到期'], ['week', '未来 7 天'], ['later', '更远']];
   const REV_MASTERY = [['unknown', '未掌握'], ['known', '已掌握']];
   const REV_WRONG = [['0', '0 次'], ['1', '1 次'], ['2', '2 次'], ['3p', '≥3 次']];
+  // 「我的」页筛选：按添加时间（录入到现在）分桶，单选
+  const MINE_ADDED = [['m1', '一个月内'], ['m3', '三个月内'], ['m6', '半年内'], ['m12', '一年内'], ['y1', '一年以上']];
   // 空筛选（全部不限）
   function emptyRevFilter() { return { subjects: [], kpIds: [], mastery: [], wrong: [], created: [], due: [] }; }
   // 是否有筛选条件生效（按「组」计数，每组最多算 1）
@@ -208,7 +210,24 @@
     if (e.target.id === 'lightbox' || e.target.id === 'lbClose') $('#lightbox').hidden = true;
   });
 
-  function subjTag(s) { return `<span class="subj-tag subj-${s}">${s}</span>`; }
+  // 每个科目分配一个稳定的颜色，用于全站区分不同科目。
+  // 按「科目列表中的序号」取色，保证现有科目两两不同；未知科目（历史/导入数据）按名称哈希兜底。
+  const SUBJECT_PALETTE = ['#b072a3', '#5d8db9', '#6f9e78', '#c08f2e', '#d17878', '#5aa0a0', '#8a7cc0', '#b5701b', '#9c6b4f', '#3f8f8f'];
+  function getSubjectColor(s) {
+    if (!s || s === '全部') return '#9aa0a6';
+    const subs = DB.getSubjects();
+    let idx = subs.indexOf(s);
+    if (idx < 0) {
+      let h = 0; const str = String(s);
+      for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
+      idx = h % SUBJECT_PALETTE.length;
+    }
+    return SUBJECT_PALETTE[idx % SUBJECT_PALETTE.length];
+  }
+  function subjTag(s) {
+    const c = getSubjectColor(s);
+    return `<span class="subj-tag" style="color:${c};background:${c}1a;border:1px solid ${c}40"><i class="subj-dot" style="background:${c}"></i>${s}</span>`;
+  }
   function masteryTag(m) {
     const mm = DB.MASTERY[m] || DB.MASTERY.unknown;
     return `<span class="mastery ${mm.cls}">${mm.label}</span>`;
@@ -296,7 +315,7 @@
     // —— 待复习题目的基础数据：科目 / 知识点 / 练习与答错次数 / 题型 ——
     const subjChips = Object.keys(bySubj)
       .sort((a, b) => bySubj[b] - bySubj[a])
-      .map(s => `<span class="td-chip">${esc(s)}<b>${bySubj[s]}</b></span>`).join('');
+      .map(s => `<span class="td-chip"><i class="subj-dot" style="background:${getSubjectColor(s)}"></i>${esc(s)}<b>${bySubj[s]}</b></span>`).join('');
     const kpMap = new Map();
     due.forEach(e => { const k = e.kpId || ''; kpMap.set(k, (kpMap.get(k) || 0) + 1); });
     const kpArr = [...kpMap.entries()].sort((a, b) => b[1] - a[1]);
@@ -1113,11 +1132,11 @@
     const list = DB.getKeywords(type)
       .filter(k => (!lockSubject || k.subject === lockSubject) && (cnt.get(k.id) || 0) > 0)
       .sort((a, b) => (cnt.get(b.id) || 0) - (cnt.get(a.id) || 0));
-    const top = list.slice(0, limit || 6).map(k => ({ id: k.id, name: k.name, count: cnt.get(k.id) || 0 }));
+    const top = list.slice(0, limit || 6).map(k => ({ id: k.id, name: k.name, subject: k.subject, count: cnt.get(k.id) || 0 }));
     // 当前已选中的词若不在高频内也要保留，避免选中项“消失”
     if (currentId && !top.some(k => k.id === currentId)) {
       const cur = DB.getKeywords(type).find(k => k.id === currentId);
-      if (cur) top.push({ id: cur.id, name: cur.name, count: cnt.get(cur.id) || 0 });
+      if (cur) top.push({ id: cur.id, name: cur.name, subject: cur.subject, count: cnt.get(cur.id) || 0 });
     }
     return top;
   }
@@ -1137,7 +1156,7 @@
       <p class="f-hint" style="margin:0 2px 10px">同一组内可多选（满足任一即可），不同组之间同时生效。</p>
       <div class="f-row f-col">
         ${lockSubject ? '' : `<div class="f-group"><label>学科（单选，定位到某本）</label><div class="kw-box" id="fSubj">
-          ${subs.map(s => `<span class="kw ${selSubj === s ? 'active' : ''}" data-v="${esc(s)}">${esc(s)}</span>`).join('')}
+          ${subs.map(s => `<span class="kw ${selSubj === s ? 'active' : ''}" data-v="${esc(s)}"><i class="subj-dot" style="background:${getSubjectColor(s)}"></i>${esc(s)}</span>`).join('')}
         </div></div>`}
         <div class="f-group"><label>知识点（可多选）</label><div class="kw-box" id="fKp"></div></div>
         <div class="f-group"><label>来源（可多选）</label><div class="kw-box" id="fSrc"></div></div>
@@ -1168,9 +1187,10 @@
     // 知识点 / 来源：跟随所选学科，多选
     const fillKw = (boxId, type, key) => {
       const top = topKeywords(type, selSubj === '全部' ? null : selSubj, null, 9999);
+      const showDot = new Set(top.map(k => k.subject)).size > 1;
       const box = body.querySelector('#' + boxId);
       box.innerHTML = `<span class="kw ${tmp[key].length ? '' : 'active'}" data-v="">不限</span>`
-        + top.map(k => `<span class="kw ${tmp[key].includes(k.id) ? 'active' : ''}" data-v="${k.id}">${esc(k.name)}<span class="cnt">${k.count}</span></span>`).join('');
+        + top.map(k => `<span class="kw ${tmp[key].includes(k.id) ? 'active' : ''}" data-v="${k.id}">${showDot ? `<i class="subj-dot" style="background:${getSubjectColor(k.subject)}"></i>` : ''}${esc(k.name)}<span class="cnt">${k.count}</span></span>`).join('');
       bindChipMulti(box, tmp[key]);
     };
     fillKw('fKp', 'kp', 'kpIds');
@@ -1717,12 +1737,12 @@
         : `<div class="empty"><span class="em-ico">🌱</span>${emptyText}</div>`}
       <details class="plan-details">
         <summary>复习推送计划 · 点开看规则</summary>
-        <p><b>记忆型</b>（如字词、单词）：按 +3 / +10 / +20 / +40 / +80 / +160 天推送，共 6 次全对即掌握；<b>稳定型</b>（如概念、公式）：按 +3 / +60 / +150 天推送，共 3 次全对即掌握。中途答错则周期从头开始（+3 天重试），直到走完一个完整周期且全对。已掌握不再自动推送；在详情页可对单题「加练一次」（记忆型 +30 天 / 稳定型 +60 天额外推一次）或「标记已掌握」提前停推，也可「提前重练」提前练习。</p>
+        <p><b>记忆型</b>（如字词、单词）：按 +3 / +20 / +40 / +80 / +160 天推送，共 5 次全对即掌握；<b>稳定型</b>（如概念、公式）：按 +3 / +60 / +150 天推送，共 3 次全对即掌握。中途答错则周期从头开始（+3 天重试），直到走完一个完整周期且全对。已掌握不再自动推送；在详情页可对单题「加练一次」（记忆型 +30 天 / 稳定型 +60 天额外推一次）或「标记已掌握」提前停推，也可「提前重练」提前练习。</p>
       </details>
       ${mastered.length ? `<details class="plan-details">
         <summary>已掌握 ${mastered.length} 道（已停止推送）</summary>
         <div class="mastered-list">
-          ${mastered.slice(0, 8).map(e => `<span class="tag">${esc(e.subject)} · ${esc(kwName(e.kpId)) || '错题'}</span>`).join('')}
+          ${mastered.slice(0, 8).map(e => `<span class="tag">${subjTag(e.subject)} · ${esc(kwName(e.kpId)) || '错题'}</span>`).join('')}
           ${mastered.length > 8 ? `<span class="tag">等 ${mastered.length} 道</span>` : ''}
         </div>
       </details>` : ''}
@@ -1769,10 +1789,11 @@
     const errs = DB.getErrors();
     const items = DB.getKeywords('kp')
       .filter(k => !subs.length || subs.includes(k.subject))
-      .map(k => ({ id: k.id, name: k.name, n: errs.filter(e => e.kpId === k.id && (!subs.length || subs.includes(e.subject))).length }))
+      .map(k => ({ id: k.id, name: k.name, subject: k.subject, n: errs.filter(e => e.kpId === k.id && (!subs.length || subs.includes(e.subject))).length }))
       .filter(x => x.n > 0);
+    const showDot = new Set(items.map(x => x.subject)).size > 1;
     return `<span class="kw ${picked.length ? '' : 'active'}" data-v="">不限</span>`
-      + items.map(x => `<span class="kw ${picked.includes(x.id) ? 'active' : ''}" data-v="${x.id}">${esc(x.name)}<span class="cnt">${x.n}</span></span>`).join('');
+      + items.map(x => `<span class="kw ${picked.includes(x.id) ? 'active' : ''}" data-v="${x.id}">${showDot ? `<i class="subj-dot" style="background:${getSubjectColor(x.subject)}"></i>` : ''}${esc(x.name)}<span class="cnt">${x.n}</span></span>`).join('');
   }
   function openRevFilter() {
     const src = state.revFilter || {};
@@ -1788,7 +1809,7 @@
       <div class="f-row f-col">
         <div class="f-group"><label>科目（可多选）</label><div class="kw-box" id="rfSubj">
           <span class="kw ${tmp.subjects.length ? '' : 'active'}" data-v="">不限</span>
-          ${subs.map(s => `<span class="kw ${tmp.subjects.includes(s) ? 'active' : ''}" data-v="${esc(s)}">${esc(s)}<span class="cnt">${errs.filter(e => e.subject === s).length}</span></span>`).join('')}
+          ${subs.map(s => `<span class="kw ${tmp.subjects.includes(s) ? 'active' : ''}" data-v="${esc(s)}"><i class="subj-dot" style="background:${getSubjectColor(s)}"></i>${esc(s)}<span class="cnt">${errs.filter(e => e.subject === s).length}</span></span>`).join('')}
         </div></div>
         <div class="f-group"><label>知识点（可多选）</label><div class="kw-box" id="rfKp">${revKpChipsHTML(tmp.subjects, tmp.kpIds)}</div></div>
         <div class="f-group"><label>掌握程度（可多选）</label><div class="kw-box" id="rfMastery">
@@ -2017,7 +2038,17 @@
     if (f.subject !== '全部') filt.subject = f.subject;
     if (f.kpId) filt.kpId = f.kpId;
     if (f.srcId) filt.srcId = f.srcId;
-    const errs = DB.getErrors(filt);
+    let errs = DB.getErrors(filt);
+    // 添加时间筛选：按「录入到现在」的天数分桶（单选）
+    const DAY = 86400000;
+    if (f.added) {
+      const ref = Date.now();
+      const cut = { m1: 30, m3: 90, m6: 180, m12: 365 }[f.added];
+      errs = errs.filter(e => {
+        const days = (ref - new Date(e.createdAt).getTime()) / DAY;
+        return f.added === 'y1' ? days > 365 : days <= cut;
+      });
+    }
     let revTotal = 0, revOk = 0, revBad = 0;
     errs.forEach(e => (e.reviews || []).forEach(r => { revTotal++; if (r.correct) revOk++; else revBad++; }));
     const known = errs.filter(e => DB.isMastered(e)).length;
@@ -2028,7 +2059,9 @@
     const maxW = Math.max(1, ...wrongBuckets);
     const wrongLabels = ['0次', '1次', '2次', '3次', '4次', '5次以上'];
     const wrongHTML = wrongLabels.map((lb, i) => `<div class="ms-mrow"><span>${lb}</span><div class="bar"><i style="width:${Math.round(wrongBuckets[i] / maxW * 100)}%;background:var(--bad)"></i></div><b>${wrongBuckets[i]}</b></div>`).join('');
-    const subChips = ['全部', ...subs].map(s => `<button class="chip ${s === f.subject ? 'active' : ''}" data-sub="${esc(s)}">${esc(s)}</button>`).join('');
+    const addedChips = `<button class="chip ${f.added ? '' : 'active'}" data-added="">不限</button>`
+      + MINE_ADDED.map(o => `<button class="chip ${f.added === o[0] ? 'active' : ''}" data-added="${o[0]}">${o[1]}</button>`).join('');
+    const subChips = ['全部', ...subs].map(s => `<button class="chip ${s === f.subject ? 'active' : ''}" data-sub="${esc(s)}"><i class="subj-dot" style="background:${getSubjectColor(s === '全部' ? '' : s)}"></i>${esc(s)}</button>`).join('');
     const kpChips = kps.length ? kps.map(k => `<button class="chip ${k.id === f.kpId ? 'active' : ''}" data-kp="${k.id}">${esc(k.name)}</button>`).join('') : '<span class="ms-empty">暂无知识点</span>';
     const srcChips = srcs.length ? srcs.map(k => `<button class="chip ${k.id === f.srcId ? 'active' : ''}" data-src="${k.id}">${esc(k.name)}</button>`).join('') : '<span class="ms-empty">暂无来源</span>';
     // 仪表盘：已掌握率环形 + 连续打卡 + 学科分布（基于全量数据）
@@ -2036,12 +2069,12 @@
     const drillCount = errs.filter(e => DB.getRType(e) === 'drill').length;
     const streak = computeStreak(DB.getErrors());
     const subjDist = DB.getSubjects().map(s => {
-      const es = DB.getErrors({ subject: s });
+      const es = errs.filter(e => e.subject === s);
       return { s, total: es.length, known: es.filter(e => DB.isMastered(e)).length, drill: es.filter(e => DB.getRType(e) === 'drill').length };
     });
     const maxSubj = Math.max(1, ...subjDist.map(x => x.total));
     const subjDistHTML = subjDist.map(x => `
-      <div class="ms-mrow"><span>${esc(x.s)}</span><div class="bar"><i style="width:${Math.round(x.total / maxSubj * 100)}%;background:#5f9c78"></i></div><b>${x.total}${x.drill ? ` <span class="drill-n">记${x.drill}</span>` : ''}</b></div>`).join('');
+      <div class="ms-mrow"><span>${esc(x.s)}</span><div class="bar"><i style="width:${Math.round(x.total / maxSubj * 100)}%;background:${getSubjectColor(x.s)}"></i></div><b>${x.total}${x.drill ? ` <span class="drill-n">记${x.drill}</span>` : ''}</b></div>`).join('');
     // 各知识点掌握率：按知识点聚合（仅统计挂了该知识点的错题），按掌握率高→低排序
     const kpStats = DB.getKeywords('kp').map(k => {
       const es = errs.filter(e => e.kpId === k.id);
@@ -2074,6 +2107,7 @@
             <div class="ms-frow"><span class="ms-fl">学科</span><div class="kw-box">${subChips}</div></div>
             <div class="ms-frow"><span class="ms-fl">知识点</span><div class="kw-box">${kpChips}</div></div>
             <div class="ms-frow"><span class="ms-fl">来源</span><div class="kw-box">${srcChips}</div></div>
+            <div class="ms-frow"><span class="ms-fl">添加时间</span><div class="kw-box">${addedChips}</div></div>
           </div>
         </div>
         <div class="ms-block" style="margin-top:14px">
@@ -2116,6 +2150,9 @@
     }));
     $$('#msBody [data-src]').forEach(c => c.addEventListener('click', () => {
       state.mineFilter.srcId = (state.mineFilter.srcId === c.dataset.src) ? null : c.dataset.src; paintMineStat();
+    }));
+    $$('#msBody [data-added]').forEach(c => c.addEventListener('click', () => {
+      state.mineFilter.added = c.dataset.added || null; paintMineStat();
     }));
   }
 
