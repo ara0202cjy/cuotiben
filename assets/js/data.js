@@ -312,8 +312,11 @@
   // 两类题型的推送周期（间隔单位：天）。走完整个周期且全对 → 标记已掌握，停止推送。
   //   记忆型 drill：+3 / +20 / +40 / +80 / +160（共 5 次，最长 160 封顶）
   //   稳定型 stable：+3 / +60 / +150（共 3 次）
+  //   校内错题来源 school：+60 / +120（共 2 次）——来源为「校内错题」的错题按此周期推送，覆盖题型设定
   const DRILL_IV = [3, 20, 40, 80, 160];
   const STABLE_IV = [3, 60, 150];
+  const SCHOOL_IV = [60, 120];
+  const SCHOOL_SRC_NAME = '校内错题';
   // 题型挂在「知识点」上：知识点设 rType，错题通过 kpId 继承；无知识点默认稳定型。
   function getRType(e) {
     if (e && e.kpId) {
@@ -322,7 +325,16 @@
     }
     return 'stable';
   }
-  function intervalsFor(e) { return getRType(e) === 'drill' ? DRILL_IV : STABLE_IV; }
+  // 来源是否为「校内错题」：来源是 src 类型关键词，名称匹配即按校内错题周期推送
+  function isSchoolSource(e) {
+    if (!e || !e.srcId) return false;
+    const s = getKeywords('src').find(x => x.id === e.srcId);
+    return !!(s && s.name === SCHOOL_SRC_NAME);
+  }
+  function intervalsFor(e) {
+    if (isSchoolSource(e)) return SCHOOL_IV;
+    return getRType(e) === 'drill' ? DRILL_IV : STABLE_IV;
+  }
   // 累计间隔：C[k] = 第 k 次复习应距锚点的天数（k 从 0 起）
   function cum(iv) { const c = [iv[0]]; for (let i = 1; i < iv.length; i++) c.push(c[i - 1] + iv[i]); return c; }
   // 排期推导（纯函数，由 reviews 实时算出，避免多端同步漂移）：
@@ -811,7 +823,7 @@
     getSubjects, addSubject, deleteSubject, renameSubject, MASTERY, isChineseDictKp,
     getKeywords, addKeyword, updateKeyword, deleteKeyword, pruneUnusedKeywords,
     getErrors, getError, addError, updateError, deleteError,
-    nextDueDate, isMastered, dueReviews, recordReview, getRType, setKeywordRType,
+    nextDueDate, isMastered, dueReviews, recordReview, getRType, isSchoolSource, setKeywordRType,
     practiceOnceDays, addPracticeOnce, setMasteredFlag, setStar,
     snooze, getPracticeSession, setPracticeSession,
     getRedoList, addToRedo, removeFromRedo,
