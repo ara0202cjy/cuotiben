@@ -2498,8 +2498,6 @@
             <div class="pf-meta">
               <span class="pf-no">第 ${i + 1} 题</span>
               ${subjTag(e.subject)}
-              ${e.kpId ? kwTagHtml(kwOf(e.kpId), '知识点', e.subject) : ''}
-              ${e.srcId ? kwTagHtml(kwOf(e.srcId), '来源', e.subject) : ''}
             </div>
             ${q ? `<div class="pf-q">${q}</div>` : ''}
             ${imgList(e).map(s => `<img class="pf-img zoomable" src="${s}" alt=""/>`).join('')}
