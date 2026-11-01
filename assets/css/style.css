@@ -160,6 +160,7 @@ body {
   color: var(--sc); background: var(--sc-bg); border: 1px solid var(--sc-bd);
   display: inline-flex; align-items: center; gap: 5px; font-weight: 600;
 }
+.kw-tag .kw-cnt { margin-left: 5px; font-weight: 700; opacity: 1; }
 /* 打印/导出 PDF 时保留科目底色与圆点，避免只留文字看不清科目 */
 .subj-tag, .tag.kw-tag { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .kw.kw-sc { color: var(--sc); background: var(--sc-bg); border-color: var(--sc-bd); }

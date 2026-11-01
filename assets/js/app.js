@@ -326,12 +326,19 @@
     // —— 待复习题目的基础数据：科目 / 知识点 / 练习与答错次数 / 题型 ——
     const subjChips = Object.keys(bySubj)
       .sort((a, b) => bySubj[b] - bySubj[a])
-      .map(s => `<span class="td-chip"><i class="subj-dot" style="background:${getSubjectColor(s)}"></i>${esc(s)}<b>${bySubj[s]}</b></span>`).join('');
+      .map(s => {
+        const c = getSubjectColor(s);
+        return `<span class="tag kw-tag" style="${scStyle(c)}"><i class="subj-dot" style="background:${c}"></i>${esc(s)}<b class="kw-cnt">${bySubj[s]}</b></span>`;
+      }).join('');
     const kpMap = new Map();
     due.forEach(e => { const k = e.kpId || ''; kpMap.set(k, (kpMap.get(k) || 0) + 1); });
     const kpArr = [...kpMap.entries()].sort((a, b) => b[1] - a[1]);
     const kpChips = kpArr.slice(0, 6)
-      .map(([id, n]) => `<span class="td-chip">${esc(id ? (kwName(id) || '已删除知识点') : '未归知识点')}<b>${n}</b></span>`).join('')
+      .map(([id, n]) => {
+        const k = id ? kwOf(id) : null;
+        const c = getSubjectColor(k ? k.subject : '');
+        return `<span class="tag kw-tag" style="${scStyle(c)}"><i class="subj-dot" style="background:${c}"></i>${esc(k ? k.name : '未归知识点')}<b class="kw-cnt">${n}</b></span>`;
+      }).join('')
       + (kpArr.length > 6 ? `<span class="td-chip td-more">等 ${kpArr.length} 个</span>` : '');
     const practiced = due.reduce((s, e) => s + (e.reviews || []).length, 0);
     const wronged = due.reduce((s, e) => s + wrongCount(e), 0);
