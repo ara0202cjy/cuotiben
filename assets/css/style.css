@@ -155,6 +155,18 @@ body {
 .tag { font-size: 11px; background: var(--surface-2); color: var(--ink-2); padding: 3px 9px; border-radius: 10px; }
 .tag.drill { background: #fdeede; color: #b5701b; font-weight: 600; }
 .tag.stable { background: #e3eefb; color: #2f6fb0; font-weight: 600; }
+/* 科目配色小标签 / 选项：文字色、浅底、描边统一由 --sc 变量驱动，跨科目一眼区分 */
+.tag.kw-tag {
+  color: var(--sc); background: var(--sc-bg); border: 1px solid var(--sc-bd);
+  display: inline-flex; align-items: center; gap: 5px; font-weight: 600;
+}
+/* 打印/导出 PDF 时保留科目底色与圆点，避免只留文字看不清科目 */
+.subj-tag, .tag.kw-tag { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.kw.kw-sc { color: var(--sc); background: var(--sc-bg); border-color: var(--sc-bd); }
+.kw.kw-sc.active { background: var(--sc); border-color: var(--sc); color: #fff; }
+.kw.kw-sc.active .cnt { color: #fff; opacity: .88; }
+.chip.kw-sc { color: var(--sc); background: var(--sc-bg); border-color: var(--sc-bd); }
+.chip.kw-sc.active { background: var(--sc); border-color: var(--sc); color: #fff; }
 .drill-n { color: #b5701b; font-weight: 600; font-size: 11px; }
 .item-when { font-size: 11px; color: var(--ink-3); margin-top: 8px; }
 .item-check { width: 17px; height: 17px; flex: 0 0 auto; accent-color: var(--primary); margin: 0; cursor: pointer; }

@@ -228,6 +228,15 @@
     const c = getSubjectColor(s);
     return `<span class="subj-tag" style="color:${c};background:${c}1a;border:1px solid ${c}40"><i class="subj-dot" style="background:${c}"></i>${s}</span>`;
   }
+  function kwOf(id) { return DB.getKeywords().find(x => x.id === id) || null; }
+  // 把科目色写成 CSS 变量，供 .kw-sc / .kw-tag 复用（文字色、浅底、描边三档）
+  function scStyle(c) { return `--sc:${c};--sc-bg:${c}1a;--sc-bd:${c}40`; }
+  // 关键词小标签（知识点 / 来源）：按「所属科目」着色 + 圆点，跨科目一眼区分
+  function kwTagHtml(k, prefix, fallbackSubj) {
+    if (!k) return '';
+    const c = getSubjectColor(k.subject || fallbackSubj);
+    return `<span class="tag kw-tag" style="${scStyle(c)}"><i class="subj-dot" style="background:${c}"></i>${prefix ? esc(prefix) + ' · ' : ''}${esc(k.name)}</span>`;
+  }
   function masteryTag(m) {
     const mm = DB.MASTERY[m] || DB.MASTERY.unknown;
     return `<span class="mastery ${mm.cls}">${mm.label}</span>`;
@@ -243,9 +252,11 @@
   // opts.subject / opts.mastery 可关闭：笔记本卡片已按科目分组、已掌握题单独折叠，无需重复展示
   function metaTagsHTML(e, opts) {
     const o = Object.assign({ subject: true, mastery: true }, opts || {});
+    const kp = e.kpId ? kwOf(e.kpId) : null;
+    const src = e.srcId ? kwOf(e.srcId) : null;
     return (o.subject ? subjTag(e.subject) : '')
-      + (e.kpId ? `<span class="tag">${esc(kwName(e.kpId))}</span>` : '')
-      + (e.srcId ? `<span class="tag">${esc(kwName(e.srcId))}</span>` : '')
+      + (kp ? kwTagHtml(kp, '', e.subject) : '')
+      + (src ? kwTagHtml(src, '', e.subject) : '')
       + (e.kpId ? (DB.getRType(e) === 'drill' ? '<span class="tag drill">记忆型</span>' : '<span class="tag stable">稳定型</span>') : '')
       + (e.starred ? '<span class="tag star">★ 重点</span>' : '')
       + (o.mastery ? masteryDisplay(e) : '');
@@ -1156,7 +1167,7 @@
       <p class="f-hint" style="margin:0 2px 10px">同一组内可多选（满足任一即可），不同组之间同时生效。</p>
       <div class="f-row f-col">
         ${lockSubject ? '' : `<div class="f-group"><label>学科（单选，定位到某本）</label><div class="kw-box" id="fSubj">
-          ${subs.map(s => `<span class="kw ${selSubj === s ? 'active' : ''}" data-v="${esc(s)}"><i class="subj-dot" style="background:${getSubjectColor(s)}"></i>${esc(s)}</span>`).join('')}
+          ${subs.map(s => { const c = getSubjectColor(s); return `<span class="kw kw-sc ${selSubj === s ? 'active' : ''}" style="${scStyle(c)}" data-v="${esc(s)}"><i class="subj-dot" style="background:${c}"></i>${esc(s)}</span>`; }).join('')}
         </div></div>`}
         <div class="f-group"><label>知识点（可多选）</label><div class="kw-box" id="fKp"></div></div>
         <div class="f-group"><label>来源（可多选）</label><div class="kw-box" id="fSrc"></div></div>
@@ -1187,10 +1198,9 @@
     // 知识点 / 来源：跟随所选学科，多选
     const fillKw = (boxId, type, key) => {
       const top = topKeywords(type, selSubj === '全部' ? null : selSubj, null, 9999);
-      const showDot = new Set(top.map(k => k.subject)).size > 1;
       const box = body.querySelector('#' + boxId);
       box.innerHTML = `<span class="kw ${tmp[key].length ? '' : 'active'}" data-v="">不限</span>`
-        + top.map(k => `<span class="kw ${tmp[key].includes(k.id) ? 'active' : ''}" data-v="${k.id}">${showDot ? `<i class="subj-dot" style="background:${getSubjectColor(k.subject)}"></i>` : ''}${esc(k.name)}<span class="cnt">${k.count}</span></span>`).join('');
+        + top.map(k => { const c = getSubjectColor(k.subject || selSubj); return `<span class="kw kw-sc ${tmp[key].includes(k.id) ? 'active' : ''}" style="${scStyle(c)}" data-v="${k.id}"><i class="subj-dot" style="background:${c}"></i>${esc(k.name)}<span class="cnt">${k.count}</span></span>`; }).join('');
       bindChipMulti(box, tmp[key]);
     };
     fillKw('fKp', 'kp', 'kpIds');
@@ -1742,7 +1752,7 @@
       ${mastered.length ? `<details class="plan-details">
         <summary>已掌握 ${mastered.length} 道（已停止推送）</summary>
         <div class="mastered-list">
-          ${mastered.slice(0, 8).map(e => `<span class="tag">${subjTag(e.subject)} · ${esc(kwName(e.kpId)) || '错题'}</span>`).join('')}
+          ${mastered.slice(0, 8).map(e => { const c = getSubjectColor(e.subject); return `<span class="tag kw-tag" style="${scStyle(c)}"><i class="subj-dot" style="background:${c}"></i>${esc(e.subject)} · ${esc(kwName(e.kpId)) || '错题'}</span>`; }).join('')}
           ${mastered.length > 8 ? `<span class="tag">等 ${mastered.length} 道</span>` : ''}
         </div>
       </details>` : ''}
@@ -1791,9 +1801,8 @@
       .filter(k => !subs.length || subs.includes(k.subject))
       .map(k => ({ id: k.id, name: k.name, subject: k.subject, n: errs.filter(e => e.kpId === k.id && (!subs.length || subs.includes(e.subject))).length }))
       .filter(x => x.n > 0);
-    const showDot = new Set(items.map(x => x.subject)).size > 1;
     return `<span class="kw ${picked.length ? '' : 'active'}" data-v="">不限</span>`
-      + items.map(x => `<span class="kw ${picked.includes(x.id) ? 'active' : ''}" data-v="${x.id}">${showDot ? `<i class="subj-dot" style="background:${getSubjectColor(x.subject)}"></i>` : ''}${esc(x.name)}<span class="cnt">${x.n}</span></span>`).join('');
+      + items.map(x => { const c = getSubjectColor(x.subject); return `<span class="kw kw-sc ${picked.includes(x.id) ? 'active' : ''}" style="${scStyle(c)}" data-v="${x.id}"><i class="subj-dot" style="background:${c}"></i>${esc(x.name)}<span class="cnt">${x.n}</span></span>`; }).join('');
   }
   function openRevFilter() {
     const src = state.revFilter || {};
@@ -1809,7 +1818,7 @@
       <div class="f-row f-col">
         <div class="f-group"><label>科目（可多选）</label><div class="kw-box" id="rfSubj">
           <span class="kw ${tmp.subjects.length ? '' : 'active'}" data-v="">不限</span>
-          ${subs.map(s => `<span class="kw ${tmp.subjects.includes(s) ? 'active' : ''}" data-v="${esc(s)}"><i class="subj-dot" style="background:${getSubjectColor(s)}"></i>${esc(s)}<span class="cnt">${errs.filter(e => e.subject === s).length}</span></span>`).join('')}
+          ${subs.map(s => { const c = getSubjectColor(s); return `<span class="kw kw-sc ${tmp.subjects.includes(s) ? 'active' : ''}" style="${scStyle(c)}" data-v="${esc(s)}"><i class="subj-dot" style="background:${c}"></i>${esc(s)}<span class="cnt">${errs.filter(e => e.subject === s).length}</span></span>`; }).join('')}
         </div></div>
         <div class="f-group"><label>知识点（可多选）</label><div class="kw-box" id="rfKp">${revKpChipsHTML(tmp.subjects, tmp.kpIds)}</div></div>
         <div class="f-group"><label>掌握程度（可多选）</label><div class="kw-box" id="rfMastery">
@@ -2061,9 +2070,9 @@
     const wrongHTML = wrongLabels.map((lb, i) => `<div class="ms-mrow"><span>${lb}</span><div class="bar"><i style="width:${Math.round(wrongBuckets[i] / maxW * 100)}%;background:var(--bad)"></i></div><b>${wrongBuckets[i]}</b></div>`).join('');
     const addedChips = `<button class="chip ${f.added ? '' : 'active'}" data-added="">不限</button>`
       + MINE_ADDED.map(o => `<button class="chip ${f.added === o[0] ? 'active' : ''}" data-added="${o[0]}">${o[1]}</button>`).join('');
-    const subChips = ['全部', ...subs].map(s => `<button class="chip ${s === f.subject ? 'active' : ''}" data-sub="${esc(s)}"><i class="subj-dot" style="background:${getSubjectColor(s === '全部' ? '' : s)}"></i>${esc(s)}</button>`).join('');
-    const kpChips = kps.length ? kps.map(k => `<button class="chip ${k.id === f.kpId ? 'active' : ''}" data-kp="${k.id}">${esc(k.name)}</button>`).join('') : '<span class="ms-empty">暂无知识点</span>';
-    const srcChips = srcs.length ? srcs.map(k => `<button class="chip ${k.id === f.srcId ? 'active' : ''}" data-src="${k.id}">${esc(k.name)}</button>`).join('') : '<span class="ms-empty">暂无来源</span>';
+    const subChips = ['全部', ...subs].map(s => { const c = getSubjectColor(s === '全部' ? '' : s); return `<button class="chip kw-sc ${s === f.subject ? 'active' : ''}" style="${scStyle(c)}" data-sub="${esc(s)}"><i class="subj-dot" style="background:${c}"></i>${esc(s)}</button>`; }).join('');
+    const kpChips = kps.length ? kps.map(k => { const c = getSubjectColor(k.subject); return `<button class="chip kw-sc ${k.id === f.kpId ? 'active' : ''}" style="${scStyle(c)}" data-kp="${k.id}"><i class="subj-dot" style="background:${c}"></i>${esc(k.name)}</button>`; }).join('') : '<span class="ms-empty">暂无知识点</span>';
+    const srcChips = srcs.length ? srcs.map(k => { const c = getSubjectColor(k.subject); return `<button class="chip kw-sc ${k.id === f.srcId ? 'active' : ''}" style="${scStyle(c)}" data-src="${k.id}"><i class="subj-dot" style="background:${c}"></i>${esc(k.name)}</button>`; }).join('') : '<span class="ms-empty">暂无来源</span>';
     // 仪表盘：已掌握率环形 + 连续打卡 + 学科分布（基于全量数据）
     const knownPct = errs.length ? Math.round(known / errs.length * 100) : 0;
     const drillCount = errs.filter(e => DB.getRType(e) === 'drill').length;
@@ -2208,7 +2217,7 @@
         <button class="close-x">✕</button>
         <h3>${type === 'kp' ? '知识点' : '来源'}管理</h3>
         <div class="seg" id="kwSubj">
-          ${subjects.map(s => `<button class="chip ${s === sel ? 'active' : ''}" data-s="${s}">${s}</button>`).join('')}
+          ${subjects.map(s => { const c = getSubjectColor(s); return `<button class="chip kw-sc ${s === sel ? 'active' : ''}" style="${scStyle(c)}" data-s="${s}"><i class="subj-dot" style="background:${c}"></i>${s}</button>`; }).join('')}
         </div>
         ${rTypeSeg}
         <div id="kwList" style="margin-top:8px">${listHTML()}</div>
@@ -2468,8 +2477,8 @@
             <div class="pf-meta">
               <span class="pf-no">第 ${i + 1} 题</span>
               ${subjTag(e.subject)}
-              ${e.kpId ? `<span class="tag">知识点 · ${kwName(e.kpId)}</span>` : ''}
-              ${e.srcId ? `<span class="tag">来源 · ${kwName(e.srcId)}</span>` : ''}
+              ${e.kpId ? kwTagHtml(kwOf(e.kpId), '知识点', e.subject) : ''}
+              ${e.srcId ? kwTagHtml(kwOf(e.srcId), '来源', e.subject) : ''}
             </div>
             ${q ? `<div class="pf-q">${q}</div>` : ''}
             ${imgList(e).map(s => `<img class="pf-img zoomable" src="${s}" alt=""/>`).join('')}
