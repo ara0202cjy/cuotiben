@@ -1728,6 +1728,7 @@
         <div class="rev-actions">
           <button class="btn small ghost" id="revFilterBtn">筛选${fOn ? '·' + revFilterActive() : ''}</button>
           <button class="btn small ghost" id="selfTestBtn">${state.selfTest ? '自测：开' : '自测：关'}</button>
+          <button class="btn small ghost" id="revExportBtn"${list.length ? '' : ' disabled'}>导出PDF</button>
           <button class="btn small" id="toGrade"${list.length ? '' : ' disabled'}>批改</button>
         </div>
       </div>
@@ -1796,6 +1797,14 @@
       b.style.display = 'none';
     }));
     $('#toGrade')?.addEventListener('click', () => renderGrade(list, renderReview));
+    // 导出 PDF：按当前页签 + 当前筛选导出（看到什么就导出什么）
+    $('#revExportBtn')?.addEventListener('click', () => {
+      if (!list.length) { toast('当前没有可导出的题'); return; }
+      const tabName = { due: '待复习', redo: '重练', overdue: '逾期', star: '重点', all: '全部' }[tab] || '待复习';
+      const fch = revFilterChips();
+      const tip = `已按「${esc(tabName)}」页签${fch.length ? ' + 筛选（' + esc(fch.join(' · ')) + '）' : '（未加筛选）'}列出共 ${list.length} 道，勾选后导出为 A4 PDF。`;
+      openExportSelect(null, list, tip);
+    });
     updateRevBadge();
   }
 
@@ -2388,9 +2397,14 @@
   function needWrite(e) { return e.subject !== '语文' && e.subject !== '英语'; }
 
   // 第一步：在当前筛选结果（或指定 id 集合）中勾选要导出的题目
-  function openExportSelect(ids) {
+  // ids：勾选的错题 id
+  // presetList：直接给定要导出的完整列表（复习页用，已套用当前页签 + 筛选）
+  // hint：弹层顶部说明文字，缺省按笔记本当前筛选描述
+  function openExportSelect(ids, presetList, hint) {
     let list;
-    if (ids && ids.length) {
+    if (presetList && presetList.length) {
+      list = presetList.slice();
+    } else if (ids && ids.length) {
       const all = DB.getErrors();
       list = all.filter(e => ids.includes(e.id));
     } else {
@@ -2402,7 +2416,7 @@
     const body = openSheet(`
       <button class="close-x">✕</button>
       <h3>选择要导出的错题</h3>
-      <p class="f-hint" style="margin:-4px 2px 12px">已按当前筛选列出共 ${list.length} 道，勾选后导出为 A4 PDF。</p>
+      <p class="f-hint" style="margin:-4px 2px 12px">${hint || `已按当前筛选列出共 ${list.length} 道，勾选后导出为 A4 PDF。`}</p>
       <div class="exp-opts">
         <div class="exp-opt-row"><span class="exp-opt-k">排版</span><div class="kw-box" id="expMode">
           <span class="kw active" data-v="compact">紧凑连排</span>
