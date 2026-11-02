@@ -2412,11 +2412,12 @@
     }
     if (!list.length) { toast('当前没有可导出的错题'); return; }
     let expMode = 'compact';   // compact 紧凑连排 / write 留白作答 / page 一题一页
-    let expSort = 'pick';      // pick 勾选顺序 / subject 按科目分组
+    let expSort = 'pick';
+    let expBook = 'auto';      // auto 自动分册 / 数字=每册题数      // pick 勾选顺序 / subject 按科目分组
     const body = openSheet(`
       <button class="close-x">✕</button>
       <h3>选择要导出的错题</h3>
-      <p class="f-hint" style="margin:-4px 2px 12px">${hint || `已按当前筛选列出共 ${list.length} 道，勾选后导出为 A4 PDF。`}</p>
+      <p class="f-hint" style="margin:-4px 2px 12px">${hint || `已按当前筛选列出共 ${list.length} 道，勾选后导出为 A4 PDF。手机微信内单份 PDF 超过约 5 页会被截断，题多时请用「分册·自动」逐册保存后再合并。`}</p>
       <div class="exp-opts">
         <div class="exp-opt-row"><span class="exp-opt-k">排版</span><div class="kw-box" id="expMode">
           <span class="kw active" data-v="compact">紧凑连排</span>
@@ -2426,6 +2427,13 @@
         <div class="exp-opt-row"><span class="exp-opt-k">排序</span><div class="kw-box" id="expSort">
           <span class="kw active" data-v="pick">勾选顺序</span>
           <span class="kw" data-v="subject">按科目分组</span>
+        </div></div>
+        <div class="exp-opt-row"><span class="exp-opt-k">分册</span><div class="kw-box" id="expBook">
+          <span class="kw active" data-v="auto">自动</span>
+          <span class="kw" data-v="5">5题/册</span>
+          <span class="kw" data-v="10">10题/册</span>
+          <span class="kw" data-v="15">15题/册</span>
+          <span class="kw" data-v="20">20题/册</span>
         </div></div>
       </div>
       <div class="btn-row" style="margin-bottom:10px">
@@ -2454,6 +2462,7 @@
     };
     bindSingle('expMode', v => { expMode = v; });
     bindSingle('expSort', v => { expSort = v; });
+    bindSingle('expBook', v => { expBook = v; });
     const syncCnt = () => { $('#expCnt').textContent = body.querySelectorAll('.exp-chk:checked').length; };
     body.querySelectorAll('.exp-chk').forEach(c => c.addEventListener('change', syncCnt));
     $('#expAll').addEventListener('click', () => { body.querySelectorAll('.exp-chk').forEach(c => (c.checked = true)); syncCnt(); });
@@ -2462,15 +2471,49 @@
       const ids = Array.from(body.querySelectorAll('.exp-chk:checked')).map(c => c.dataset.id);
       if (!ids.length) { toast('请至少勾选一道题'); return; }
       const sel = list.filter(e => ids.includes(e.id));
+      const ppb = expBook === 'auto' ? 0 : parseInt(expBook, 10);
       closeSheet();
-      exportPDF(sel, expMode, expSort);
+      exportPDF(sel, expMode, expSort, ppb);
     });
   }
 
-  // 第二步：生成 A4 打印区
+  // 单册打印区 HTML（startNo 为全局起始题号，保证分册合并后题号连续）
+  function buildPrintBook(chunk, mode, reserve, modeName, sort, bookNo, bookTotal, totalCount, startNo) {
+    const bookInfo = bookTotal > 1 ? ` · 第 ${bookNo}/${bookTotal} 册` : '';
+    const head = `
+      <div class="pf-head">
+        <h1 class="pf-title">错题练习卷${bookTotal > 1 ? `（${bookNo}/${bookTotal}）` : ''}</h1>
+        <p class="pf-sub">本册 ${chunk.length} 道 / 共 ${totalCount} 道 · ${modeName}${sort === 'subject' ? ' · 按科目分组' : ''}${bookInfo} · 生成于 ${new Date().toLocaleString('zh-CN')}</p>
+      </div>`;
+    const items = chunk.map((e, i) => {
+      const gNo = (startNo || 0) + i + 1;
+      const isP = isDictError(e);
+      const q = isP ? (e.pinyin || e.text || '') : (e.text || '');
+      return `
+      <div class="pf-item">
+        <div class="pf-meta">
+          <span class="pf-no">第 ${gNo} 题</span>
+          ${subjTag(e.subject)}
+        </div>
+        ${q ? `<div class="pf-q">${q}</div>` : ''}
+        ${imgList(e).map(s => `<img class="pf-img zoomable" src="${s}" alt=""/>`).join('')}
+        ${(reserve && needWrite(e)) ? `<div class="pf-write"><span>作答区域</span></div>` : ''}
+      </div>`;
+    }).join('');
+    return `<div class="pf-doc pf-mode-${mode}">${head}${items}</div>`;
+  }
+
+  // 每册默认题数（保守取值，确保手机微信内每册打印 < 5 页，避免被静默截断）
+  function defaultPerBook(mode) {
+    if (mode === 'page') return 3;   // 一题一页 ≈ 3 页/册
+    if (mode === 'write') return 4;  // 留白作答 ≈ 0.5–1 页/题，4 页/册
+    return 14;                       // 紧凑连排，短题多题/页，14 题/册（估算 < 5 页）
+  }
+
+  // 第二步：生成 A4 打印区；perBook 指定每册题数（0/缺省=自动）
   // mode: compact=紧凑连排（无作答区，多题/页）/ write=每题留白作答 / page=一题一页
   // sort: pick=按勾选顺序 / subject=按科目分组
-  function exportPDF(list, mode, sort) {
+  function exportPDF(list, mode, sort, perBook) {
     if (!list.length) { toast('没有可导出的错题'); return; }
     mode = mode || 'compact';
     const arr = list.slice();
@@ -2483,30 +2526,31 @@
     }
     const reserve = mode === 'write' || mode === 'page';
     const modeName = { compact: '紧凑连排', write: '留白作答', page: '一题一页' }[mode] || '紧凑连排';
+    const ppb = (perBook && perBook > 0) ? perBook : defaultPerBook(mode);
+    // 切分为多册
+    const books = [];
+    for (let i = 0; i < arr.length; i += ppb) books.push(arr.slice(i, i + ppb));
+    const total = books.length;
     const pf = $('#printArea');
-    pf.innerHTML = `
-      <div class="pf-doc pf-mode-${mode}">
-        <div class="pf-head">
-          <h1 class="pf-title">错题练习卷</h1>
-          <p class="pf-sub">共 ${arr.length} 道 · ${modeName}${sort === 'subject' ? ' · 按科目分组' : ''} · 生成于 ${new Date().toLocaleString('zh-CN')}</p>
-        </div>
-        ${arr.map((e, i) => {
-          const isP = isDictError(e);
-          const q = isP ? (e.pinyin || e.text || '') : (e.text || '');
-          return `
-          <div class="pf-item">
-            <div class="pf-meta">
-              <span class="pf-no">第 ${i + 1} 题</span>
-              ${subjTag(e.subject)}
-            </div>
-            ${q ? `<div class="pf-q">${q}</div>` : ''}
-            ${imgList(e).map(s => `<img class="pf-img zoomable" src="${s}" alt=""/>`).join('')}
-            ${(reserve && needWrite(e)) ? `<div class="pf-write"><span>作答区域</span></div>` : ''}
-          </div>`;
-        }).join('')}
-      </div>`;
-    // 触发浏览器打印 / 另存为 PDF（A4 样式由 @media print 控制）
-    setTimeout(() => window.print(), 60);
+    if (total <= 1) {
+      pf.innerHTML = buildPrintBook(arr, mode, reserve, modeName, sort, 1, 1, arr.length, 0);
+      setTimeout(() => window.print(), 60);
+      return;
+    }
+    // 多册：依次弹打印，逐册「另存为 PDF」后再合并
+    toast(`共 ${arr.length} 道，已自动分 ${total} 册（每册约 ${ppb} 题）。将依次弹出 ${total} 次打印，请逐册「另存为 PDF」，再合并为一份完整卷。`);
+    let idx = 0;
+    const nextBook = () => {
+      if (idx >= total) { toast(`已全部导出 ${total} 册，请用 PDF 工具合并为一份`); return; }
+      const n = idx + 1;
+      pf.innerHTML = buildPrintBook(books[idx], mode, reserve, modeName, sort, n, total, arr.length, idx * ppb);
+      idx++;
+      setTimeout(() => {
+        window.print();
+        setTimeout(nextBook, 500);
+      }, 80);
+    };
+    setTimeout(nextBook, 600);
   }
 
   // 立即同步一次：先拉取云端最新，若云端无数据 / 拉取失败则改为上传本地
