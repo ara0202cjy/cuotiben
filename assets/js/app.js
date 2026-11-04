@@ -148,8 +148,8 @@
     const du = f.due || [];
     if (du.length) {
       const t = DB.nextDueDate(e);
-      const hit = du.some(k => k === 'overdue' ? t < t0
-        : k === 'd4' ? (t >= t0 && t < t0 + 4 * DAY)
+      const hit = du.some(k => k === 'overdue' ? t < t0 + DAY
+        : k === 'd4' ? (t >= t0 + DAY && t < t0 + 4 * DAY)
           : k === 'd7' ? (t >= t0 + 4 * DAY && t < t0 + 7 * DAY)
             : k === 'd15' ? (t >= t0 + 7 * DAY && t < t0 + 15 * DAY)
               : k === 'later' ? t >= t0 + 15 * DAY : true);
@@ -1106,8 +1106,8 @@
     // 到期日期：按下次推送时间划段
     if (du.length) {
       const t = DB.nextDueDate(e), t0 = startOfToday(), DAY = 86400000;
-      const hit = du.some(k => k === 'overdue' ? t < t0
-        : k === 'd4' ? (t >= t0 && t < t0 + 4 * DAY)
+      const hit = du.some(k => k === 'overdue' ? t < t0 + DAY
+        : k === 'd4' ? (t >= t0 + DAY && t < t0 + 4 * DAY)
           : k === 'd7' ? (t >= t0 + 4 * DAY && t < t0 + 7 * DAY)
             : k === 'd15' ? (t >= t0 + 7 * DAY && t < t0 + 15 * DAY)
               : k === 'later' ? t >= t0 + 15 * DAY : true);
