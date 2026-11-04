@@ -98,7 +98,7 @@
   }
   /* ---------- 复习页筛选：科目 / 知识点 / 添加日期 / 到期日期 ---------- */
   const REV_CREATED = [['today', '今天'], ['7', '近 7 天'], ['30', '近 30 天'], ['older', '更早']];
-  const REV_DUE = [['overdue', '已逾期'], ['today', '今天到期'], ['week', '未来 7 天'], ['later', '更远']];
+  const REV_DUE = [['overdue', '已逾期'], ['d4', '未来4天'], ['d7', '未来7天'], ['d15', '未来15天'], ['later', '更远']];
   const REV_MASTERY = [['unknown', '未掌握'], ['known', '已掌握']];
   const REV_WRONG = [['0', '0 次'], ['1', '1 次'], ['2', '2 次'], ['3p', '≥3 次']];
   // 「我的」页筛选：按添加时间（录入到现在）分桶，单选
@@ -149,9 +149,10 @@
     if (du.length) {
       const t = DB.nextDueDate(e);
       const hit = du.some(k => k === 'overdue' ? t < t0
-        : k === 'today' ? (t >= t0 && t < t0 + DAY)
-          : k === 'week' ? (t >= t0 && t < t0 + 7 * DAY)
-            : k === 'later' ? t >= t0 + 7 * DAY : true);
+        : k === 'd4' ? (t >= t0 && t < t0 + 4 * DAY)
+          : k === 'd7' ? (t >= t0 + 4 * DAY && t < t0 + 7 * DAY)
+            : k === 'd15' ? (t >= t0 + 7 * DAY && t < t0 + 15 * DAY)
+              : k === 'later' ? t >= t0 + 15 * DAY : true);
       if (!hit) return false;
     }
     return true;
@@ -854,7 +855,6 @@
       </div>` : ''}
       <p class="list-hint">点开任一错题本可预览内容 · 共 ${total} 道 · 点 ✕ 可删减${hasFilter ? '（已按筛选隐藏无匹配学科）' : ''}</p>
       ${showSubjects.length ? showSubjects.map(s => {
-        const errsAll = DB.getErrors({ subject: s });
         const errs = visibleSubjectErrs(s);
         const isOpen = !!expanded[s];
         const allSel = errs.length > 0 && errs.every(e => state.selected.has(e.id));
@@ -873,7 +873,7 @@
           <div class="book-head" data-s="${s}">
             ${state.selectMode ? `<input type="checkbox" class="book-check" data-s="${s}" ${allSel ? 'checked' : ''} aria-label="全选本本"/>` : ''}
             ${subjTag(s)}
-            <span class="book-cnt">${errsAll.length} 道</span>
+            <span class="book-cnt">${errs.length} 道</span>
             <span class="book-chev">${isOpen ? '▾' : '▸'}</span>
           </div>
           <div class="book-body" id="book-${s}" ${isOpen ? '' : 'hidden'}>
@@ -1074,8 +1074,10 @@
   }
   // 错题次数 = 该错题在复习中被判错的次数（reviews 中 correct 为 false 的条数）
   function wrongCount(e) { return (e.reviews || []).filter(r => !r.correct).length; }
+  // 笔记本「已练习次数」筛选分桶（总练习次数 = (e.reviews||[]).length，含答对与答错）
+  const BOOK_PRACTICED = [['0', '0 次'], ['1_2', '1–2 次'], ['3_5', '3–5 次'], ['6p', '≥6 次']];
   // 笔记本筛选默认值（全部不限）
-  function emptyBookFilter() { return { kpIds: [], srcIds: [], mastery: [], wrong: [], due: [], from: null, to: null }; }
+  function emptyBookFilter() { return { kpIds: [], srcIds: [], mastery: [], wrong: [], practiced: [], due: [], from: null, to: null }; }
   // 笔记本筛选：同组多选取「或」，组间取「且」
   function matchBookFilter(e) {
     const f = state.filter || {};
@@ -1088,6 +1090,13 @@
       const hit = wr.some(k => k === '0' ? w === 0 : k === '1' ? w === 1 : k === '2' ? w === 2 : w >= 3);
       if (!hit) return false;
     }
+    // 已练习次数：总复习次数（含答对与答错）
+    const pr = f.practiced || [];
+    if (pr.length) {
+      const n = (e.reviews || []).length;
+      const hit = pr.some(k => k === '0' ? n === 0 : k === '1_2' ? (n >= 1 && n <= 2) : k === '3_5' ? (n >= 3 && n <= 5) : n >= 6);
+      if (!hit) return false;
+    }
     // 添加日期：按录入日期（YYYY-MM-DD，含边界）
     if (f.from || f.to) {
       const day = (e.createdAt || '').slice(0, 10);
@@ -1098,8 +1107,10 @@
     if (du.length) {
       const t = DB.nextDueDate(e), t0 = startOfToday(), DAY = 86400000;
       const hit = du.some(k => k === 'overdue' ? t < t0
-        : k === 'today' ? (t >= t0 && t < t0 + DAY)
-          : k === 'week' ? (t >= t0 && t < t0 + 7 * DAY) : t >= t0 + 7 * DAY);
+        : k === 'd4' ? (t >= t0 && t < t0 + 4 * DAY)
+          : k === 'd7' ? (t >= t0 + 4 * DAY && t < t0 + 7 * DAY)
+            : k === 'd15' ? (t >= t0 + 7 * DAY && t < t0 + 15 * DAY)
+              : k === 'later' ? t >= t0 + 15 * DAY : true);
       if (!hit) return false;
     }
     return true;
@@ -1127,7 +1138,7 @@
     const f = state.filter || {};
     let n = 0;
     if (state.subject && state.subject !== '全部') n++;
-    ['kpIds', 'srcIds', 'mastery', 'wrong', 'due'].forEach(k => { if ((f[k] || []).length) n++; });
+    ['kpIds', 'srcIds', 'mastery', 'wrong', 'practiced', 'due'].forEach(k => { if ((f[k] || []).length) n++; });
     if (f.from || f.to) n++;
     return n ? `（${n}）` : '';
   }
@@ -1163,7 +1174,7 @@
   function openFilter(lockSubject) {
     const src = state.filter || {};
     const tmp = emptyBookFilter();
-    ['kpIds', 'srcIds', 'mastery', 'wrong', 'due'].forEach(k => { tmp[k] = [...(src[k] || [])]; });
+    ['kpIds', 'srcIds', 'mastery', 'wrong', 'practiced', 'due'].forEach(k => { tmp[k] = [...(src[k] || [])]; });
     tmp.from = src.from || ''; tmp.to = src.to || '';
     let selSubj = lockSubject || state.subject || '全部';
     const allErrs = DB.getErrors();
@@ -1185,6 +1196,10 @@
         <div class="f-group"><label>错误次数（可多选）</label><div class="kw-box" id="fW">
           <span class="kw ${tmp.wrong.length ? '' : 'active'}" data-v="">不限</span>
           ${[['0', '0 次'], ['1', '1 次'], ['2', '2 次'], ['3p', '≥3 次']].map(o => `<span class="kw ${tmp.wrong.includes(o[0]) ? 'active' : ''}" data-v="${o[0]}">${o[1]}</span>`).join('')}
+        </div></div>
+        <div class="f-group"><label>已练习次数（可多选）</label><div class="kw-box" id="fP">
+          <span class="kw ${tmp.practiced.length ? '' : 'active'}" data-v="">不限</span>
+          ${BOOK_PRACTICED.map(o => `<span class="kw ${tmp.practiced.includes(o[0]) ? 'active' : ''}" data-v="${o[0]}">${o[1]}</span>`).join('')}
         </div></div>
         <div class="f-group"><label>到期日期（可多选）</label><div class="kw-box" id="fD">
           <span class="kw ${tmp.due.length ? '' : 'active'}" data-v="">不限</span>
@@ -1214,6 +1229,7 @@
     fillKw('fSrc', 'src', 'srcIds');
     bindChipMulti(body.querySelector('#fM'), tmp.mastery);
     bindChipMulti(body.querySelector('#fW'), tmp.wrong);
+    bindChipMulti(body.querySelector('#fP'), tmp.practiced);
     bindChipMulti(body.querySelector('#fD'), tmp.due);
     if (!lockSubject) {
       body.querySelectorAll('#fSubj .kw').forEach(x => x.addEventListener('click', () => {
