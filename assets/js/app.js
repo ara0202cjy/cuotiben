@@ -1780,6 +1780,11 @@
       state.revTab = b.dataset.tab;
       renderReview();
     }));
+    // 移动端：选中页签自动横向居中，避免被挤出屏外
+    const onTab = $('#revTabs button.on');
+    if (onTab && onTab.scrollIntoView) {
+      onTab.scrollIntoView({ inline: 'center', block: 'nearest' });
+    }
     // 筛选：科目 / 知识点 / 添加日期 / 到期日期
     $('#revFilterBtn')?.addEventListener('click', openRevFilter);
     $('#revFClear')?.addEventListener('click', () => {
