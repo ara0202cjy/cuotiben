@@ -4,8 +4,29 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#f7faf8" />
+  <!-- 防缓存外壳：避免微信/手机浏览器缓存旧版（含曾为「背单词工作台」时的旧界面） -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <script>
+  (function(){
+    var APP_VER = '20261104u';
+    window.addEventListener('pageshow', function(e){ if (e.persisted) location.reload(); });
+    try { if (sessionStorage.getItem('cb_redirected') === '1') return; } catch(e){}
+    fetch('version.json?_=' + Date.now(), { cache: 'no-store' })
+      .then(function(r){ return r.json(); })
+      .then(function(j){
+        if (j && j.v && j.v !== APP_VER) {
+          try { sessionStorage.setItem('cb_redirected', '1'); } catch(e){}
+          var sep = location.search ? '&' : '?';
+          location.replace(location.pathname + sep + '_v=' + encodeURIComponent(j.v) + (location.hash || ''));
+        }
+      })
+      .catch(function(){});
+  })();
+  </script>
   <title>错题本 · 平板横屏版</title>
-  <link rel="stylesheet" href="assets/css/style.css?v=20261104t" />
+  <link rel="stylesheet" href="assets/css/style.css?v=20261104u" />
   <link rel="stylesheet" href="assets/css/mode-ipad.css?v=20260911f" />
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
   <!-- 拼音库（联网加载，用于语文字词默写自动注音；离线时自动降级为手动输入） -->
@@ -69,7 +90,7 @@
   <!-- 导出 PDF 专用打印区（屏幕隐藏，打印时显示） -->
   <div id="printArea"></div>
 
-  <script src="assets/js/data.js?v=20261104t"></script>
-  <script src="assets/js/app.js?v=20261104t"></script>
+  <script src="assets/js/data.js?v=20261104u"></script>
+  <script src="assets/js/app.js?v=20261104u"></script>
 </body>
 </html>
