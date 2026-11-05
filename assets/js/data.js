@@ -337,6 +337,9 @@
   }
   // 累计间隔：C[k] = 第 k 次复习应距锚点的天数（k 从 0 起）
   function cum(iv) { const c = [iv[0]]; for (let i = 1; i < iv.length; i++) c.push(c[i - 1] + iv[i]); return c; }
+  // 取某时间戳所在日期的 0 点（毫秒）。推送一律按「日期」计算，与记录的具体时刻无关，
+  // 因此到期/加练/顺延都归一到当天 0 点，每天 0 点即视为已到推送日。
+  function dayStart(ts) { const d = new Date(ts); d.setHours(0, 0, 0, 0); return d.getTime(); }
   // 排期推导（纯函数，由 reviews 实时算出，避免多端同步漂移）：
   //   anchor = 创建日；其间若有一次判错，anchor 重置为该错日、步数归零（周期从头开始）。
   //   pos = 自上次判错以来连续「对」的次数；下次推送 = anchor + 累计间隔[pos]。
@@ -344,11 +347,11 @@
   function schedule(e) {
     const iv = intervalsFor(e);
     const C = cum(iv);
-    let anchor = new Date(e.createdAt).getTime();
+    let anchor = dayStart(e.createdAt);
     let pos = 0;
     (e.reviews || []).forEach(r => {
       const bad = r.correct === false || r.result === 'bad';
-      if (bad) { anchor = new Date(r.date).getTime(); pos = 0; }
+      if (bad) { anchor = dayStart(r.date); pos = 0; }
       else pos++;
     });
     const mastered = pos >= iv.length;
@@ -397,7 +400,7 @@
   function practiceOnceDays(e) { return getRType(e) === 'drill' ? 30 : 60; }
   function addPracticeOnce(id, days) {
     const e = getError(id); if (!e) return;
-    e.practiceOnce = { due: Date.now() + (days || practiceOnceDays(e)) * DAY };
+    e.practiceOnce = { due: dayStart(Date.now()) + (days || practiceOnceDays(e)) * DAY };
     updateError(id, e); autoSyncTick();
   }
   // 提前标识已掌握（不再推送）/ 取消已掌握（恢复未掌握）：写入/清除 mastery='known'
@@ -612,7 +615,7 @@
   // 未练习：顺延到明天再推送（不记录对错，仅延后下次到期时间）
   function snooze(id) {
     const e = getError(id); if (!e) return;
-    e.snoozedUntil = Date.now() + DAY;
+    e.snoozedUntil = dayStart(Date.now()) + DAY;
     updateError(id, e); autoSyncTick();
   }
 

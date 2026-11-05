@@ -59,7 +59,7 @@
   // 逾期：到期日早于今天零点（今天到期的算「今天」，不算逾期）
   function overdueList() {
     const t0 = startOfToday();
-    return DB.dueReviews().filter(e => DB.nextDueDate(e) < t0);
+    return DB.dueReviews().filter(e => DB.nextDueDate(e) < t0 + DAY);
   }
   // 每道题的来源标记：{ due: 到期, redo: 重练, practice: 加练 }
   // 同一道题既到期又在重练清单里时只显示一次，但两个标记都保留
@@ -88,7 +88,7 @@
   function revListFor(tab) {
     const due = DB.dueReviews();
     if (tab === 'redo') return redoDueList();
-    if (tab === 'overdue') { const t0 = startOfToday(); return due.filter(e => DB.nextDueDate(e) < t0); }
+    if (tab === 'overdue') { const t0 = startOfToday(); return due.filter(e => DB.nextDueDate(e) < t0 + DAY); }
     if (tab === 'star') return starredList();
     if (tab === 'all') {
       const ids = new Set(due.map(e => e.id));
@@ -319,7 +319,8 @@
     const doneN = doneTodayCount(errs);
     const totalToday = doneN + revCount;
     const pct = totalToday ? Math.min(100, Math.round(doneN / totalToday * 100)) : 0;
-    const overdueN = overdueList().length;
+    // 首页提示用「严格逾期」（早于今天）计数，恒 ≤ 今日待复习数，避免「其中已逾期 X 道」出现 X>总数 的矛盾
+    const overduePastN = DB.dueReviews().filter(e => DB.nextDueDate(e) < startOfToday()).length;
     // 学科构成：一眼看出今天哪科最多
     const bySubj = {};
     due.forEach(e => { bySubj[e.subject] = (bySubj[e.subject] || 0) + 1; });
@@ -366,7 +367,7 @@
           <div class="today-info">
             <p class="today-h">今日待复习 <b>${revCount}</b> 道</p>
             <p class="today-sub">${revCount
-              ? (overdueN ? `其中已逾期 <b>${overdueN}</b> 道，建议先练` : '都在今天到期，按顺序练即可')
+              ? (overduePastN ? `其中已逾期 <b>${overduePastN}</b> 道，建议先练` : '都在今天到期，按顺序练即可')
               : (doneN ? '今天的都练完了，明天见 🌿' : '今天没有到期要复习的错题 🎉')}</p>
           </div>
         </div>
