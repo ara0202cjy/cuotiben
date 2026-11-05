@@ -58,8 +58,8 @@
   }
   // 逾期：到期日早于今天零点（今天到期的算「今天」，不算逾期）
   function overdueList() {
-    const t0 = startOfToday();
-    return DB.dueReviews().filter(e => DB.nextDueDate(e) < t0 + DAY);
+    // 与「待复习」统一口径：同指已到复习日（含今天到期）的全部题
+    return DB.dueReviews();
   }
   // 每道题的来源标记：{ due: 到期, redo: 重练, practice: 加练 }
   // 同一道题既到期又在重练清单里时只显示一次，但两个标记都保留
@@ -88,7 +88,7 @@
   function revListFor(tab) {
     const due = DB.dueReviews();
     if (tab === 'redo') return redoDueList();
-    if (tab === 'overdue') { const t0 = startOfToday(); return due.filter(e => DB.nextDueDate(e) < t0 + DAY); }
+    if (tab === 'overdue') return due;  // 与「待复习」统一口径：同指已到复习日的全部题
     if (tab === 'star') return starredList();
     if (tab === 'all') {
       const ids = new Set(due.map(e => e.id));
@@ -1762,7 +1762,7 @@
       </div>
       <p class="rev-tip">${tab === 'redo'
         ? '重练题来自你手动勾选：答对即移出重练清单，答错明天再推，直到全对。'
-        : (tab === 'overdue' ? '这里只列出到期日早于今天的题，越靠前逾期越久，建议先练。'
+        : (tab === 'overdue' ? '这里列出已到复习日的题（含今天到期），越靠前逾期越久，建议先练。'
           : (tab === 'star' ? '★ 重点是你在卡片上标星的题；未到期的也可在这里提前练，批改后按正常周期推进。'
             : (state.selfTest
               ? '自测模式已开启：答案默认遮住，先自己回想，点每题的「显示答案」逐个核对，再进批改记录对错。'
