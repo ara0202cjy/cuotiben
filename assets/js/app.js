@@ -2554,24 +2554,20 @@
   }
 
   // 单册打印区 HTML（startNo 为全局起始题号，保证分册合并后题号连续）
-  // tallSet：这些题「题目过高（>1/3 页）」，留白作答时单独占一页；
-  // 页首题不加 break-before（避免空白首页），其后一题与下一题用 break-before 隔开（不用 break-after，避免空白页）
-  function buildPrintBook(chunk, mode, reserve, modeName, sort, bookNo, bookTotal, totalCount, startNo, tallSet) {
+  function buildPrintBook(chunk, mode, reserve, modeName, sort, bookNo, bookTotal, totalCount, startNo) {
     const bookInfo = bookTotal > 1 ? ` · 第 ${bookNo}/${bookTotal} 册` : '';
     const head = `
       <div class="pf-head">
         <h1 class="pf-title">错题练习卷${bookTotal > 1 ? `（${bookNo}/${bookTotal}）` : ''}</h1>
         <p class="pf-sub">本册 ${chunk.length} 道 / 共 ${totalCount} 道 · ${modeName}${sort === 'subject' ? ' · 按科目分组' : ''}${bookInfo} · 生成于 ${new Date().toLocaleString('zh-CN')}</p>
       </div>`;
-    const isTall = e => !!(tallSet && tallSet.has(e.id));
     const items = chunk.map((e, i) => {
       const gNo = (startNo || 0) + i + 1;
       const isP = isDictError(e);
       const q = isP ? (e.pinyin || e.text || '') : (e.text || '');
-      const tall = isTall(e);
       const nowrite = mode === 'write' && reserve && !needWrite(e); // 语文/英语：留白模式下仍按紧凑排
       return `
-      <div class="pf-item${tall ? ' tall' : ''}${nowrite ? ' nowrite' : ''}">
+      <div class="pf-item${nowrite ? ' nowrite' : ''}">
         <div class="pf-meta">
           <span class="pf-no">第 ${gNo} 题</span>
           ${subjTag(e.subject)}
@@ -2618,13 +2614,7 @@
     };
     const head = box.querySelector('.pf-head');
     const headerH = head ? rectH(head) : 0;
-    // h = 整题高度（用于分页）；qH = 题目部分高度（文字+图片，用于判断是否「超高题」）
-    const items = Array.from(box.querySelectorAll('.pf-item')).map(el => {
-      const q = el.querySelector('.pf-q');
-      const im = el.querySelector('.pf-imgs');
-      const qH = (q ? rectH(q) : 0) + (im ? rectH(im) : 0);
-      return { h: rectH(el), qH };
-    });
+    const items = Array.from(box.querySelectorAll('.pf-item')).map(el => rectH(el));
     return { box, headerH, items, pageH: A4_CONTENT_H_MM * pxPerMm };
   }
 
@@ -2674,21 +2664,12 @@
     const m = await measurePrintLayout(arr, mode, reserve, modeName, sort);
     // 留白作答为固定版式，实测高即可靠；用 0.995 而非 0.98，避免把「2 题/页」误算成 1 题/页
     const pageH = m.pageH * (mode === 'write' ? 0.995 : PAGE_SAFETY);
-    // 留白作答：题目部分超过一页 1/3 → 视为「超高题」，单独占一页
-    const tallThreshold = m.pageH / 3;
-    // 只有「需要留白作答」的科目（数学等）才判定超高题；语文/英语在本模式下按紧凑排
-    const tallFlags = m.items.map((it, i) => mode === 'write' && needWrite(arr[i]) && it.qH > tallThreshold);
-    // 超高题在分页模拟里按整页计，保证 5 页/份的拆分准确
-    const effHeights = m.items.map((it, i) => tallFlags[i]
-      ? Math.ceil(Math.max(it.h, pageH) / pageH) * pageH
-      : it.h);
-    const tallSet = new Set(arr.filter((e, i) => tallFlags[i]).map(e => e.id));
-    const books = splitByPages(arr, effHeights, m.headerH, pageH);
+    const books = splitByPages(arr, m.items, m.headerH, pageH);
     if (m.box.parentNode) m.box.parentNode.removeChild(m.box);
 
     const total = books.length;
     if (total <= 1) {
-      pf.innerHTML = buildPrintBook(arr, mode, reserve, modeName, sort, 1, 1, arr.length, 0, tallSet);
+      pf.innerHTML = buildPrintBook(arr, mode, reserve, modeName, sort, 1, 1, arr.length, 0);
       setTimeout(() => window.print(), 60);
       return;
     }
@@ -2699,7 +2680,7 @@
       if (idx >= total) { toast(`已全部导出 ${total} 份 PDF（每份 ≤5 页）`); return; }
       const chunk = books[idx];
       const n = idx + 1;
-      pf.innerHTML = buildPrintBook(chunk, mode, reserve, modeName, sort, n, total, arr.length, startNo, tallSet);
+      pf.innerHTML = buildPrintBook(chunk, mode, reserve, modeName, sort, n, total, arr.length, startNo);
       startNo += chunk.length;
       idx++;
       setTimeout(() => {

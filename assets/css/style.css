@@ -518,20 +518,18 @@ body {
 .pf-mode-compact .pf-q { font-size: 13.5px; margin: 2px 0 4px; }
 .pf-mode-compact .pf-img { max-height: 52mm; width: auto; object-fit: contain; }
 .pf-mode-compact .pf-item .tag { font-size: 10px; padding: 1px 6px; }
-/* 留白作答：默认整题 124mm（一页 2 题）。题目超过 1/3 页时由 JS 标记 .tall，单独占一页，
-   避免超长题被压缩/裁切，也避免因题目长短造成不可控跳页。 */
-.pf-mode-write .pf-item { padding: 8px 12px; margin-bottom: 6px; min-height: 124mm; display: flex; flex-direction: column; }
-.pf-mode-write .pf-meta { margin-bottom: 4px; }
+/* 固定整题 118mm：一页严格 2 题（即使打印引擎的可用页高更小也能放下）。
+   题目在顶部优先显示，题目偏长时优先压缩下方留白区；极长题也不会挤掉第二题。 */
+.pf-mode-write .pf-item { padding: 6px 12px; margin-bottom: 6px; height: 112mm; overflow: hidden; display: flex; flex-direction: column; }
+.pf-mode-write .pf-meta { margin-bottom: 2px; }
 .pf-mode-write .pf-q { font-size: 14px; flex: 0 0 auto; }
-/* 题内图片固定一行、等高 40mm：无论 1 张还是多张，都不会改变整题高度 */
+/* 题内图片固定一行、等高 36mm：无论 1 张还是多张，都不会改变整题高度 */
 .pf-mode-write .pf-imgs { display: flex; gap: 6px; margin: 2px 0; flex: 0 0 auto; }
-.pf-mode-write .pf-imgs .pf-img { flex: 1 1 0; min-width: 0; height: 40mm; width: auto; object-fit: contain; margin: 0; }
-/* 留白区吃掉剩余高度；题目偏长时自动收缩（最小 20mm），优先保证 2 题/页 */
-.pf-mode-write .pf-write { flex: 1 1 0; min-height: 18mm; margin-top: 8px; }
-/* 超高题：整页留给它（248mm + 表头仍 < 285mm，普通题 124mm 无法与其同页，自然独占一页） */
-.pf-mode-write .pf-item.tall { min-height: 248mm; }
+.pf-mode-write .pf-imgs .pf-img { flex: 1 1 0; min-width: 0; height: 36mm; width: auto; object-fit: contain; margin: 0; }
+/* 留白区吃掉剩余高度；题目偏长时先收缩留白（最小 12mm） */
+.pf-mode-write .pf-write { flex: 1 1 0; min-height: 12mm; margin-top: 6px; }
 /* 混合科目导出（留白模式）时，语文/英语不需要作答区，按紧凑连排显示 */
-.pf-mode-write .pf-item.nowrite { min-height: 0; display: block; padding: 7px 0 9px; margin-bottom: 0; border: 0; border-bottom: 1px dashed #dfe7e2; border-radius: 0; }
+.pf-mode-write .pf-item.nowrite { min-height: 0; height: auto; display: block; padding: 7px 0 9px; margin-bottom: 0; border: 0; border-bottom: 1px dashed #dfe7e2; border-radius: 0; }
 .pf-mode-write .pf-item.nowrite .pf-meta { margin-bottom: 3px; gap: 6px; }
 .pf-mode-write .pf-item.nowrite .pf-q { font-size: 13.5px; margin: 2px 0 4px; }
 .pf-mode-write .pf-item.nowrite .pf-imgs { display: block; }
