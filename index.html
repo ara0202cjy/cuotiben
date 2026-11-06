@@ -10,7 +10,7 @@
   <meta http-equiv="Expires" content="0" />
   <script>
   (function(){
-    var APP_VER = '20261106af';
+    var APP_VER = '20261106ag';
     // 从前进/后退缓存(bfcache)恢复时强制刷新，避免显示旧页面
     window.addEventListener('pageshow', function(e){ if (e.persisted) location.reload(); });
     try { if (sessionStorage.getItem('cb_redirected') === '1') return; } catch(e){}
@@ -28,7 +28,7 @@
   })();
   </script>
   <title>错题本 · 中学错题收集工作台</title>
-  <link rel="stylesheet" href="assets/css/style.css?v=20261106af" />
+  <link rel="stylesheet" href="assets/css/style.css?v=20261106ag" />
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
   <!-- 拼音库（联网加载，用于语文字词默写自动注音；离线时自动降级为手动输入） -->
   <script src="https://cdn.jsdelivr.net/npm/pinyin-pro@3.25.0/dist/index.js"></script>
@@ -91,7 +91,7 @@
   <!-- 导出 PDF 专用打印区（屏幕隐藏，打印时显示） -->
   <div id="printArea"></div>
 
-  <script src="assets/js/data.js?v=20261106af"></script>
-  <script src="assets/js/app.js?v=20261106af"></script>
+  <script src="assets/js/data.js?v=20261106ag"></script>
+  <script src="assets/js/app.js?v=20261106ag"></script>
 </body>
 </html>

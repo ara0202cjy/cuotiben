@@ -2482,19 +2482,20 @@
     if (!list.length) { toast('当前没有可导出的错题'); return; }
     // 打印默认按学科排序（同学科内保持原顺序）
     list = sortBySubject(list);
-    let expMode = defaultModeFor(list);  // compact 紧凑连排 / write 留白作答 / page 一题一页
+    let expMode = 'auto';                // auto 默认（按学科） / compact / write / page
     let expSort = 'subject';             // pick 勾选顺序 / subject 按科目分组（默认按学科）
-    let modeTouched = false;             // 用户手动改过排版后，不再按勾选自动切换
     const body = openSheet(`
       <button class="close-x">✕</button>
       <h3>选择要导出的错题</h3>
       <p class="f-hint" style="margin:-4px 2px 12px">${hint || `已按当前筛选列出共 ${list.length} 道，勾选后导出为 A4 PDF。单份超过 5 页会自动拆分为多份 PDF（每份 ≤5 页），请逐份「另存为 PDF」。`}</p>
       <div class="exp-opts">
         <div class="exp-opt-row"><span class="exp-opt-k">排版</span><div class="kw-box" id="expMode">
+          <span class="kw ${expMode === 'auto' ? 'active' : ''}" data-v="auto">默认</span>
           <span class="kw ${expMode === 'compact' ? 'active' : ''}" data-v="compact">紧凑连排</span>
           <span class="kw ${expMode === 'write' ? 'active' : ''}" data-v="write">留白作答</span>
           <span class="kw ${expMode === 'page' ? 'active' : ''}" data-v="page">一题一页</span>
         </div></div>
+        <p class="exp-mode-tip" id="expModeTip"></p>
         <div class="exp-opt-row"><span class="exp-opt-k">排序</span><div class="kw-box" id="expSort">
           <span class="kw ${expSort === 'pick' ? 'active' : ''}" data-v="pick">勾选顺序</span>
           <span class="kw ${expSort === 'subject' ? 'active' : ''}" data-v="subject">按科目分组</span>
@@ -2524,22 +2525,21 @@
         onPick(w.dataset.v);
       }));
     };
-    const setModeChips = () => {
-      body.querySelectorAll('#expMode .kw').forEach(w => w.classList.toggle('active', w.dataset.v === expMode));
-    };
-    bindSingle('expMode', v => { expMode = v; modeTouched = true; });
-    bindSingle('expSort', v => { expSort = v; });
-    // 勾选变化时，若用户没手动改排版，则按所选科目自动切默认排版（语文/英语→紧凑，数学等→留白）
-    const autoMode = () => {
-      if (modeTouched) return;
+    // 默认排版提示：选「默认」时按所选科目实时显示实际采用的排版
+    const updateModeTip = () => {
+      const tip = body.querySelector('#expModeTip'); if (!tip) return;
+      if (expMode !== 'auto') { tip.textContent = ''; return; }
       const checked = Array.from(body.querySelectorAll('.exp-chk:checked')).map(c => c.dataset.id);
-      const nm = defaultModeFor(list.filter(e => checked.includes(e.id)));
-      if (nm !== expMode) { expMode = nm; setModeChips(); }
+      const m = defaultModeFor(list.filter(e => checked.includes(e.id)));
+      tip.textContent = '默认按学科：' + ({ compact: '紧凑连排', write: '留白作答' }[m] || '留白作答');
     };
+    bindSingle('expMode', v => { expMode = v; updateModeTip(); });
+    bindSingle('expSort', v => { expSort = v; });
     const syncCnt = () => {
       $('#expCnt').textContent = body.querySelectorAll('.exp-chk:checked').length;
-      autoMode();
+      updateModeTip();
     };
+    updateModeTip();
     body.querySelectorAll('.exp-chk').forEach(c => c.addEventListener('change', syncCnt));
     $('#expAll').addEventListener('click', () => { body.querySelectorAll('.exp-chk').forEach(c => (c.checked = true)); syncCnt(); });
     $('#expNone').addEventListener('click', () => { body.querySelectorAll('.exp-chk').forEach(c => (c.checked = false)); syncCnt(); });
@@ -2547,8 +2547,9 @@
       const ids = Array.from(body.querySelectorAll('.exp-chk:checked')).map(c => c.dataset.id);
       if (!ids.length) { toast('请至少勾选一道题'); return; }
       const sel = list.filter(e => ids.includes(e.id));
+      const mode = expMode === 'auto' ? defaultModeFor(sel) : expMode;
       closeSheet();
-      exportPDF(sel, expMode, expSort);
+      exportPDF(sel, mode, expSort);
     });
   }
 
@@ -2671,7 +2672,8 @@
 
     toast('正在计算分页…');
     const m = await measurePrintLayout(arr, mode, reserve, modeName, sort);
-    const pageH = m.pageH * PAGE_SAFETY;
+    // 留白作答为固定版式，实测高即可靠；用 0.995 而非 0.98，避免把「2 题/页」误算成 1 题/页
+    const pageH = m.pageH * (mode === 'write' ? 0.995 : PAGE_SAFETY);
     // 留白作答：题目部分超过一页 1/3 → 视为「超高题」，单独占一页
     const tallThreshold = m.pageH / 3;
     // 只有「需要留白作答」的科目（数学等）才判定超高题；语文/英语在本模式下按紧凑排
