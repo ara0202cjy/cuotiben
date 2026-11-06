@@ -1842,7 +1842,7 @@
       if (!list.length) { toast('当前没有可导出的题'); return; }
       const tabName = { due: '待复习', redo: '重练', overdue: '逾期', star: '重点', all: '全部' }[tab] || '待复习';
       const fch = revFilterChips();
-      const tip = `已按「${esc(tabName)}」页签${fch.length ? ' + 筛选（' + esc(fch.join(' · ')) + '）' : '（未加筛选）'}列出共 ${list.length} 道，勾选后导出为 A4 PDF。`;
+      const tip = `已按「${esc(tabName)}」页签${fch.length ? ' + 筛选（' + esc(fch.join(' · ')) + '）' : '（未加筛选）'}列出共 ${list.length} 道，勾选后导出为 A4 PDF。单份超过 5 页会自动拆分。`;
       openExportSelect(null, list, tip);
     });
     updateRevBadge();
@@ -2452,12 +2452,11 @@
     }
     if (!list.length) { toast('当前没有可导出的错题'); return; }
     let expMode = 'compact';   // compact 紧凑连排 / write 留白作答 / page 一题一页
-    let expSort = 'pick';
-    let expBook = 'auto';      // auto 自动分册 / 数字=每册题数      // pick 勾选顺序 / subject 按科目分组
+    let expSort = 'pick';      // pick 勾选顺序 / subject 按科目分组
     const body = openSheet(`
       <button class="close-x">✕</button>
       <h3>选择要导出的错题</h3>
-      <p class="f-hint" style="margin:-4px 2px 12px">${hint || `已按当前筛选列出共 ${list.length} 道，勾选后导出为 A4 PDF。手机微信内单份 PDF 超过约 5 页会被截断，题多时请用「分册·自动」逐册保存后再合并。`}</p>
+      <p class="f-hint" style="margin:-4px 2px 12px">${hint || `已按当前筛选列出共 ${list.length} 道，勾选后导出为 A4 PDF。单份超过 5 页会自动拆分为多份 PDF（每份 ≤5 页），请逐份「另存为 PDF」。`}</p>
       <div class="exp-opts">
         <div class="exp-opt-row"><span class="exp-opt-k">排版</span><div class="kw-box" id="expMode">
           <span class="kw active" data-v="compact">紧凑连排</span>
@@ -2467,13 +2466,6 @@
         <div class="exp-opt-row"><span class="exp-opt-k">排序</span><div class="kw-box" id="expSort">
           <span class="kw active" data-v="pick">勾选顺序</span>
           <span class="kw" data-v="subject">按科目分组</span>
-        </div></div>
-        <div class="exp-opt-row"><span class="exp-opt-k">分册</span><div class="kw-box" id="expBook">
-          <span class="kw active" data-v="auto">自动</span>
-          <span class="kw" data-v="5">5题/册</span>
-          <span class="kw" data-v="10">10题/册</span>
-          <span class="kw" data-v="15">15题/册</span>
-          <span class="kw" data-v="20">20题/册</span>
         </div></div>
       </div>
       <div class="btn-row" style="margin-bottom:10px">
@@ -2502,7 +2494,6 @@
     };
     bindSingle('expMode', v => { expMode = v; });
     bindSingle('expSort', v => { expSort = v; });
-    bindSingle('expBook', v => { expBook = v; });
     const syncCnt = () => { $('#expCnt').textContent = body.querySelectorAll('.exp-chk:checked').length; };
     body.querySelectorAll('.exp-chk').forEach(c => c.addEventListener('change', syncCnt));
     $('#expAll').addEventListener('click', () => { body.querySelectorAll('.exp-chk').forEach(c => (c.checked = true)); syncCnt(); });
@@ -2511,9 +2502,8 @@
       const ids = Array.from(body.querySelectorAll('.exp-chk:checked')).map(c => c.dataset.id);
       if (!ids.length) { toast('请至少勾选一道题'); return; }
       const sel = list.filter(e => ids.includes(e.id));
-      const ppb = expBook === 'auto' ? 0 : parseInt(expBook, 10);
       closeSheet();
-      exportPDF(sel, expMode, expSort, ppb);
+      exportPDF(sel, expMode, expSort);
     });
   }
 
@@ -2543,17 +2533,72 @@
     return `<div class="pf-doc pf-mode-${mode}">${head}${items}</div>`;
   }
 
-  // 每册默认题数（保守取值，确保手机微信内每册打印 < 5 页，避免被静默截断）
-  function defaultPerBook(mode) {
-    if (mode === 'page') return 3;   // 一题一页 ≈ 3 页/册
-    if (mode === 'write') return 4;  // 留白作答 ≈ 0.5–1 页/题，4 页/册
-    return 14;                       // 紧凑连排，短题多题/页，14 题/册（估算 < 5 页）
+  // A4 打印内容区（@page margin:16mm）：宽 178mm、高 265mm；单份最多 5 页
+  const A4_CONTENT_W_MM = 210 - 32;
+  const A4_CONTENT_H_MM = 297 - 32;
+  const MAX_PAGES_PER_PDF = 5;
+  // 页高安全系数：略小于真实页高，宁可提前拆分，确保每份 ≤5 页
+  const PAGE_SAFETY = 0.98;
+
+  // 离屏测量：把整份内容按打印版式渲染，等图片就位后量出表头与每题的真实高度
+  async function measurePrintLayout(arr, mode, reserve, modeName, sort) {
+    const box = document.createElement('div');
+    box.className = 'pf-measure';
+    box.innerHTML = buildPrintBook(arr, mode, reserve, modeName, sort, 1, 1, arr.length, 0);
+    document.body.appendChild(box);
+    // 等图片加载完（最多 3 秒兜底），否则图片高度为 0 会低估页数
+    const imgs = Array.from(box.querySelectorAll('img'));
+    await Promise.all(imgs.map(img => img.complete ? Promise.resolve()
+      : new Promise(res => {
+          let done = false; const fin = () => { if (done) return; done = true; res(); };
+          img.addEventListener('load', fin, { once: true });
+          img.addEventListener('error', fin, { once: true });
+          setTimeout(fin, 3000);
+        })));
+    // mm→px 校准（屏幕 96dpi；用 100mm 探针，兼容浏览器缩放）
+    const probe = document.createElement('div');
+    probe.style.cssText = 'position:absolute;left:0;top:0;width:100mm;height:0;visibility:hidden;';
+    box.appendChild(probe);
+    const pxPerMm = (probe.getBoundingClientRect().width || (100 * 96 / 25.4)) / 100;
+    probe.remove();
+    const rectH = el => {
+      const cs = getComputedStyle(el);
+      return el.getBoundingClientRect().height + (parseFloat(cs.marginBottom) || 0);
+    };
+    const head = box.querySelector('.pf-head');
+    const headerH = head ? rectH(head) : 0;
+    const items = Array.from(box.querySelectorAll('.pf-item')).map(el => rectH(el));
+    return { box, headerH, items, pageH: A4_CONTENT_H_MM * pxPerMm };
   }
 
-  // 第二步：生成 A4 打印区；perBook 指定每册题数（0/缺省=自动）
+  // 按真实页高把题目分组成若干份，每份 ≤ MAX_PAGES_PER_PDF 页
+  function splitByPages(arr, heights, headerH, pageH) {
+    const books = [];
+    let cur = [], filled = headerH, pages = 1;
+    for (let i = 0; i < heights.length; i++) {
+      const h = heights[i];
+      let nFilled = filled, nPages = pages;
+      if (nFilled + h > pageH) { nPages++; nFilled = 0; }
+      nFilled += h;
+      // 加入后超过 5 页 → 当前份收尾，从新的一份重新开始（新份带表头）
+      if (nPages > MAX_PAGES_PER_PDF && cur.length) {
+        books.push(cur);
+        cur = []; filled = headerH; pages = 1;
+        nFilled = headerH; nPages = 1;
+        if (nFilled + h > pageH) { nPages++; nFilled = 0; }
+        nFilled += h;
+      }
+      cur.push(arr[i]); filled = nFilled; pages = nPages;
+    }
+    if (cur.length) books.push(cur);
+    return books;
+  }
+
+  // 第二步：生成 A4 打印区
   // mode: compact=紧凑连排（无作答区，多题/页）/ write=每题留白作答 / page=一题一页
   // sort: pick=按勾选顺序 / subject=按科目分组
-  function exportPDF(list, mode, sort, perBook) {
+  // 自动按真实页高计算：总页数 ≤5 时输出 1 份；>5 时自动拆成多份，每份 ≤5 页
+  async function exportPDF(list, mode, sort) {
     if (!list.length) { toast('没有可导出的错题'); return; }
     mode = mode || 'compact';
     const arr = list.slice();
@@ -2566,24 +2611,29 @@
     }
     const reserve = mode === 'write' || mode === 'page';
     const modeName = { compact: '紧凑连排', write: '留白作答', page: '一题一页' }[mode] || '紧凑连排';
-    const ppb = (perBook && perBook > 0) ? perBook : defaultPerBook(mode);
-    // 切分为多册
-    const books = [];
-    for (let i = 0; i < arr.length; i += ppb) books.push(arr.slice(i, i + ppb));
-    const total = books.length;
     const pf = $('#printArea');
+
+    toast('正在计算分页…');
+    const m = await measurePrintLayout(arr, mode, reserve, modeName, sort);
+    const pageH = m.pageH * PAGE_SAFETY;
+    const books = splitByPages(arr, m.items, m.headerH, pageH);
+    if (m.box.parentNode) m.box.parentNode.removeChild(m.box);
+
+    const total = books.length;
     if (total <= 1) {
       pf.innerHTML = buildPrintBook(arr, mode, reserve, modeName, sort, 1, 1, arr.length, 0);
       setTimeout(() => window.print(), 60);
       return;
     }
-    // 多册：依次弹打印，逐册「另存为 PDF」后再合并
-    toast(`共 ${arr.length} 道，已自动分 ${total} 册（每册约 ${ppb} 题）。将依次弹出 ${total} 次打印，请逐册「另存为 PDF」，再合并为一份完整卷。`);
-    let idx = 0;
+    // 超过 5 页：自动拆成多份，逐份弹出打印（每份另存为一个 PDF）
+    toast(`共 ${arr.length} 道，已按 5 页/份自动拆分为 ${total} 份 PDF。将依次弹出 ${total} 次打印，请逐份「另存为 PDF」。`);
+    let idx = 0, startNo = 0;
     const nextBook = () => {
-      if (idx >= total) { toast(`已全部导出 ${total} 册，请用 PDF 工具合并为一份`); return; }
+      if (idx >= total) { toast(`已全部导出 ${total} 份 PDF（每份 ≤5 页）`); return; }
+      const chunk = books[idx];
       const n = idx + 1;
-      pf.innerHTML = buildPrintBook(books[idx], mode, reserve, modeName, sort, n, total, arr.length, idx * ppb);
+      pf.innerHTML = buildPrintBook(chunk, mode, reserve, modeName, sort, n, total, arr.length, startNo);
+      startNo += chunk.length;
       idx++;
       setTimeout(() => {
         window.print();

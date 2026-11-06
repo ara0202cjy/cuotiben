@@ -490,6 +490,43 @@ body {
 
 /* ============ 导出 PDF 打印区（屏幕隐藏，打印时显示） ============ */
 #printArea { display: none; }
+/* 打印版式：打印时用于输出，屏幕下仅用于离屏测量容器 .pf-measure（二者共用，保证量高准确） */
+.pf-doc { font-family: var(--font); color: #222; font-size: 13px; line-height: 1.6; }
+/* 最后一题不留底边距，避免被挤到下一页形成空白页 */
+.pf-item:last-child { margin-bottom: 0 !important; }
+.pf-head { border-bottom: 2px solid #5d9b85; padding-bottom: 8px; margin-bottom: 14px; }
+.pf-title { margin: 0; font-size: 20px; color: #3a5b4f; }
+.pf-sub { margin: 4px 0 0; color: #777; font-size: 12px; }
+.pf-item { page-break-inside: avoid; break-inside: avoid; border: 1px solid #e2e8e4; border-radius: 10px; padding: 14px 16px; margin-bottom: 16px; }
+.pf-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.pf-no { font-weight: 700; color: #3a5b4f; }
+.pf-q { font-size: 16px; white-space: pre-wrap; margin: 4px 0 8px; }
+.pf-img { max-width: 100%; border-radius: 6px; margin: 6px 0; }
+.pf-write {
+  min-height: 45mm; border: 1px dashed #cfd8d2; border-radius: 8px; margin-top: 10px;
+  color: #b6c2bb; display: flex; align-items: flex-start; padding: 8px 10px;
+}
+/* 紧凑连排：不留作答区，题目间只用细分隔线，尽量多题/页 */
+.pf-mode-compact .pf-item {
+  border: 0; border-bottom: 1px dashed #dfe7e2; border-radius: 0;
+  padding: 7px 0 9px; margin: 0;
+}
+.pf-mode-compact .pf-meta { margin-bottom: 3px; gap: 6px; }
+.pf-mode-compact .pf-q { font-size: 13.5px; margin: 2px 0 4px; }
+.pf-mode-compact .pf-img { max-height: 52mm; width: auto; object-fit: contain; }
+.pf-mode-compact .pf-item .tag { font-size: 10px; padding: 1px 6px; }
+/* 留白作答：每题一个作答区，但不再占半页 */
+.pf-mode-write .pf-item { padding: 10px 12px; margin-bottom: 10px; }
+.pf-mode-write .pf-q { font-size: 14px; }
+.pf-mode-write .pf-write { min-height: 34mm; }
+/* 一题一页：固定物理高度（不能用 vh，否则屏幕测量与打印不一致） */
+.pf-mode-page .pf-item { min-height: 230mm; }
+.pf-mode-page .pf-write { min-height: 90mm; }
+/* 离屏测量容器：与 A4 打印内容区同宽（210-16*2=178mm），不可见但参与排版 */
+.pf-measure {
+  position: fixed; left: -10000px; top: 0; width: 178mm;
+  visibility: hidden; pointer-events: none; z-index: -1;
+}
 @media print {
   @page { size: A4; margin: 16mm; }
   html, body { background: #fff; }
@@ -497,40 +534,7 @@ body {
      只用 visibility:hidden 会保留 App 占位（#app 有 min-height:100vh），
      再叠加绝对定位的打印区，很容易多顶出一张空白页 */
   body > *:not(#printArea) { display: none !important; }
-  #printArea {
-    display: block; position: static; width: auto; margin: 0; padding: 0;
-    font-family: var(--font); color: #222; font-size: 13px; line-height: 1.6;
-  }
-  /* 最后一题不留底边距，避免被挤到下一页形成空白页 */
-  .pf-item:last-child { margin-bottom: 0 !important; }
-  .pf-head { border-bottom: 2px solid #5d9b85; padding-bottom: 8px; margin-bottom: 14px; }
-  .pf-title { margin: 0; font-size: 20px; color: #3a5b4f; }
-  .pf-sub { margin: 4px 0 0; color: #777; font-size: 12px; }
-  .pf-item { page-break-inside: avoid; break-inside: avoid; border: 1px solid #e2e8e4; border-radius: 10px; padding: 14px 16px; margin-bottom: 16px; }
-  .pf-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
-  .pf-no { font-weight: 700; color: #3a5b4f; }
-  .pf-q { font-size: 16px; white-space: pre-wrap; margin: 4px 0 8px; }
-  .pf-img { max-width: 100%; border-radius: 6px; margin: 6px 0; }
-  .pf-write {
-    min-height: 45mm; border: 1px dashed #cfd8d2; border-radius: 8px; margin-top: 10px;
-    color: #b6c2bb; display: flex; align-items: flex-start; padding: 8px 10px;
-  }
-  /* 紧凑连排：不留作答区，题目间只用细分隔线，尽量多题/页 */
-  .pf-mode-compact .pf-item {
-    border: 0; border-bottom: 1px dashed #dfe7e2; border-radius: 0;
-    padding: 7px 0 9px; margin: 0;
-  }
-  .pf-mode-compact .pf-meta { margin-bottom: 3px; gap: 6px; }
-  .pf-mode-compact .pf-q { font-size: 13.5px; margin: 2px 0 4px; }
-  .pf-mode-compact .pf-img { max-height: 52mm; width: auto; object-fit: contain; }
-  .pf-mode-compact .pf-item .tag { font-size: 10px; padding: 1px 6px; }
-  /* 留白作答：每题一个作答区，但不再占半页 */
-  .pf-mode-write .pf-item { padding: 10px 12px; margin-bottom: 10px; }
-  .pf-mode-write .pf-q { font-size: 14px; }
-  .pf-mode-write .pf-write { min-height: 34mm; }
-  /* 一题一页：保持原来的宽松版式 */
-  .pf-mode-page .pf-item { min-height: 48vh; }
-  .pf-mode-page .pf-write { min-height: 90mm; }
+  #printArea { display: block; position: static; width: auto; margin: 0; padding: 0; }
 }
 
 /* ============ 编辑图标（错题本 / 复习列表 / 最近错题） ============ */
