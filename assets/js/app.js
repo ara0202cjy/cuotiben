@@ -829,9 +829,9 @@
     const mSel = f.mastery || [];
     const hasFilter = !!((f.kpIds || []).length || (f.srcIds || []).length || mSel.length || (f.wrong || []).length
       || (f.due || []).length || f.from || f.to
-      || (state.subject && state.subject !== '全部') || (state.search && state.search.trim()));
-    const total = (state.subject && state.subject !== '全部')
-      ? DB.getErrors({ subject: state.subject }).length
+      || (f.subjects || []).length || (state.search && state.search.trim()));
+    const total = (f.subjects && f.subjects.length)
+      ? f.subjects.reduce((s, sub) => s + DB.getErrors({ subject: sub }).length, 0)
       : DB.getErrors().length;
     const allOpen = subjects.length > 0 && subjects.every(s => expanded[s]);
 
@@ -1092,11 +1092,13 @@
   // 笔记本「已练习次数」筛选分桶（总练习次数 = (e.reviews||[]).length，含答对与答错）
   const BOOK_PRACTICED = [['0', '0 次'], ['1_2', '1–2 次'], ['3_5', '3–5 次'], ['6p', '≥6 次']];
   // 笔记本筛选默认值（全部不限）
-  function emptyBookFilter() { return { kpIds: [], srcIds: [], mastery: [], wrong: [], practiced: [], due: [], from: null, to: null }; }
+  function emptyBookFilter() { return { subjects: [], kpIds: [], srcIds: [], mastery: [], wrong: [], practiced: [], due: [], from: null, to: null }; }
   // 笔记本筛选：同组多选取「或」，组间取「且」
   function matchBookFilter(e) {
     const f = state.filter || {};
-    const kp = f.kpIds || [], src = f.srcIds || [], ma = f.mastery || [], wr = f.wrong || [], du = f.due || [];
+    const subs = f.subjects || [], kp = f.kpIds || [], src = f.srcIds || [], ma = f.mastery || [], wr = f.wrong || [], du = f.due || [];
+    // 学科：可多选，命中任一即可
+    if (subs.length && !subs.includes(e.subject)) return false;
     if (kp.length && !kp.includes(e.kpId)) return false;
     if (src.length && !src.includes(e.srcId)) return false;
     if (ma.length && !ma.includes(DB.isMastered(e) ? 'known' : 'unknown')) return false;
@@ -1152,29 +1154,30 @@
   function filterLabel() {
     const f = state.filter || {};
     let n = 0;
-    if (state.subject && state.subject !== '全部') n++;
+    if ((f.subjects || []).length) n++;
     ['kpIds', 'srcIds', 'mastery', 'wrong', 'practiced', 'due'].forEach(k => { if ((f[k] || []).length) n++; });
     if (f.from || f.to) n++;
     return n ? `（${n}）` : '';
   }
   // 取某学科在当前筛选下匹配的错题（笔记本渲染与勾选共用）
   function listSubjectErrs(s) {
-    // 学科筛选为单选：选了某一科就只显示那一本（与面板「定位到某本」的提示一致）
-    if (state.subject && state.subject !== '全部' && s !== state.subject) return [];
+    // 学科多选已在 matchBookFilter 内处理（f.subjects）；此处按单科取数即可
     return DB.getErrors({ subject: s }).filter(matchBookFilter);
   }
 
   /* ---------------- 高频词：按错题中的使用次数排序，取前 N 个 ---------------- */
+  // lockSubject 可为单科字符串，或数组（多科取并集）；null/空=不锁定
   function topKeywords(type, lockSubject, currentId, limit) {
+    const subs = lockSubject ? (Array.isArray(lockSubject) ? lockSubject : [lockSubject]) : null;
     const cnt = new Map();
     DB.getErrors().forEach(e => {
       const id = type === 'kp' ? e.kpId : e.srcId;
       if (!id) return;
-      if (lockSubject && e.subject !== lockSubject) return;
+      if (subs && !subs.includes(e.subject)) return;
       cnt.set(id, (cnt.get(id) || 0) + 1);
     });
     const list = DB.getKeywords(type)
-      .filter(k => (!lockSubject || k.subject === lockSubject) && (cnt.get(k.id) || 0) > 0)
+      .filter(k => (!subs || subs.includes(k.subject)) && (cnt.get(k.id) || 0) > 0)
       .sort((a, b) => (cnt.get(b.id) || 0) - (cnt.get(a.id) || 0));
     const top = list.slice(0, limit || 6).map(k => ({ id: k.id, name: k.name, subject: k.subject, count: cnt.get(k.id) || 0 }));
     // 当前已选中的词若不在高频内也要保留，避免选中项“消失”
@@ -1189,18 +1192,21 @@
   function openFilter(lockSubject) {
     const src = state.filter || {};
     const tmp = emptyBookFilter();
-    ['kpIds', 'srcIds', 'mastery', 'wrong', 'practiced', 'due'].forEach(k => { tmp[k] = [...(src[k] || [])]; });
+    ['subjects', 'kpIds', 'srcIds', 'mastery', 'wrong', 'practiced', 'due'].forEach(k => { tmp[k] = [...(src[k] || [])]; });
     tmp.from = src.from || ''; tmp.to = src.to || '';
-    let selSubj = lockSubject || state.subject || '全部';
+    let selSubs = lockSubject ? [lockSubject] : (tmp.subjects || []).slice();
     const allErrs = DB.getErrors();
+    const cntBySubj = {};
+    allErrs.forEach(e => { const s = e.subject || ''; if (s) cntBySubj[s] = (cntBySubj[s] || 0) + 1; });
     const subs = ['全部', ...new Set([...DB.getSubjects(), ...allErrs.map(e => e.subject).filter(Boolean)])];
     const body = openSheet(`
       <button class="close-x">✕</button>
       <h3>${lockSubject ? '筛选「' + lockSubject + '」本内容' : '筛选错题'}</h3>
       <p class="f-hint" style="margin:0 2px 10px">同一组内可多选（满足任一即可），不同组之间同时生效。</p>
       <div class="f-row f-col">
-        ${lockSubject ? '' : `<div class="f-group"><label>学科（单选，定位到某本）</label><div class="kw-box" id="fSubj">
-          ${subs.map(s => { const c = getSubjectColor(s); return `<span class="kw kw-sc ${selSubj === s ? 'active' : ''}" style="${scStyle(c)}" data-v="${esc(s)}"><i class="subj-dot" style="background:${c}"></i>${esc(s)}</span>`; }).join('')}
+        ${lockSubject ? '' : `<div class="f-group"><label>学科（可多选）</label><div class="kw-box" id="fSubj">
+          <span class="kw ${tmp.subjects.length ? '' : 'active'}" data-v="">不限</span>
+          ${subs.slice(1).map(s => { const c = getSubjectColor(s); return `<span class="kw kw-sc ${tmp.subjects.includes(s) ? 'active' : ''}" style="${scStyle(c)}" data-v="${esc(s)}"><i class="subj-dot" style="background:${c}"></i>${esc(s)}<span class="cnt">${cntBySubj[s] || 0}</span></span>`; }).join('')}
         </div></div>`}
         <div class="f-group"><label>知识点（可多选）</label><div class="kw-box" id="fKp"></div></div>
         <div class="f-group"><label>来源（可多选）</label><div class="kw-box" id="fSrc"></div></div>
@@ -1232,12 +1238,13 @@
         <button class="btn ghost" id="fReset">重置</button>
         <button class="btn" id="fApply">应用</button>
       </div>`);
-    // 知识点 / 来源：跟随所选学科，多选
+    // 知识点 / 来源：跟随所选学科（多科取并集），多选
     const fillKw = (boxId, type, key) => {
-      const top = topKeywords(type, selSubj === '全部' ? null : selSubj, null, 9999);
+      const scope = selSubs.length ? selSubs : null;
+      const top = topKeywords(type, scope, null, 9999);
       const box = body.querySelector('#' + boxId);
       box.innerHTML = `<span class="kw ${tmp[key].length ? '' : 'active'}" data-v="">不限</span>`
-        + top.map(k => { const c = getSubjectColor(k.subject || selSubj); return `<span class="kw kw-sc ${tmp[key].includes(k.id) ? 'active' : ''}" style="${scStyle(c)}" data-v="${k.id}"><i class="subj-dot" style="background:${c}"></i>${esc(k.name)}<span class="cnt">${k.count}</span></span>`; }).join('');
+        + top.map(k => { const c = getSubjectColor(k.subject || (selSubs[0]) || '全部'); return `<span class="kw kw-sc ${tmp[key].includes(k.id) ? 'active' : ''}" style="${scStyle(c)}" data-v="${k.id}"><i class="subj-dot" style="background:${c}"></i>${esc(k.name)}<span class="cnt">${k.count}</span></span>`; }).join('');
       bindChipMulti(box, tmp[key]);
     };
     fillKw('fKp', 'kp', 'kpIds');
@@ -1247,26 +1254,24 @@
     bindChipMulti(body.querySelector('#fP'), tmp.practiced);
     bindChipMulti(body.querySelector('#fD'), tmp.due);
     if (!lockSubject) {
-      body.querySelectorAll('#fSubj .kw').forEach(x => x.addEventListener('click', () => {
-        body.querySelectorAll('#fSubj .kw').forEach(y => y.classList.remove('active'));
-        x.classList.add('active');
-        selSubj = x.dataset.v;
+      // 学科多选：点选切换，选中后知识点/来源按所选学科取并集
+      bindChipMulti(body.querySelector('#fSubj'), tmp.subjects, () => {
+        selSubs = tmp.subjects.slice();
         tmp.kpIds = []; tmp.srcIds = [];
         fillKw('fKp', 'kp', 'kpIds');
         fillKw('fSrc', 'src', 'srcIds');
-      }));
+      });
     }
     $('#fReset').addEventListener('click', () => {
-      state.subject = lockSubject || '全部';
+      state.subject = '全部';
       state.filter = emptyBookFilter();
       if (lockSubject) state.expanded[lockSubject] = true;
       closeSheet(); renderList();
     });
     $('#fApply').addEventListener('click', () => {
-      const subj = lockSubject || (body.querySelector('#fSubj .active')?.dataset.v || '全部');
       tmp.from = body.querySelector('#fFrom')?.value || null;
       tmp.to = body.querySelector('#fTo')?.value || null;
-      state.subject = subj;
+      state.subject = '全部';
       state.filter = tmp;
       if (lockSubject) state.expanded[lockSubject] = true;
       closeSheet(); renderList();
@@ -2443,7 +2448,7 @@
       const all = DB.getErrors();
       list = all.filter(e => ids.includes(e.id));
     } else {
-      list = DB.getErrors(state.subject !== '全部' ? { subject: state.subject } : {}).filter(matchBookFilter);
+      list = DB.getErrors().filter(matchBookFilter);
     }
     if (!list.length) { toast('当前没有可导出的错题'); return; }
     let expMode = 'compact';   // compact 紧凑连排 / write 留白作答 / page 一题一页
