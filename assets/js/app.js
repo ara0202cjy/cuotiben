@@ -2559,7 +2559,7 @@
     const head = `
       <div class="pf-head">
         <h1 class="pf-title">错题练习卷${bookTotal > 1 ? `（${bookNo}/${bookTotal}）` : ''}</h1>
-        <p class="pf-sub">本册 ${chunk.length} 道 / 共 ${totalCount} 道 · ${modeName}${sort === 'subject' ? ' · 按科目分组' : ''}${bookInfo} · 生成于 ${new Date().toLocaleString('zh-CN')}</p>
+        <p class="pf-sub">本册 ${chunk.length} 道 / 共 ${totalCount} 道 · ${modeName}${sort === 'subject' ? ' · 按科目分组' : ''}${bookInfo}</p>
       </div>`;
     const items = chunk.map((e, i) => {
       const gNo = (startNo || 0) + i + 1;

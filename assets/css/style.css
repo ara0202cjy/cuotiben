@@ -520,14 +520,14 @@ body {
 .pf-mode-compact .pf-item .tag { font-size: 10px; padding: 1px 6px; }
 /* 固定整题 118mm：一页严格 2 题（即使打印引擎的可用页高更小也能放下）。
    题目在顶部优先显示，题目偏长时优先压缩下方留白区；极长题也不会挤掉第二题。 */
-.pf-mode-write .pf-item { padding: 6px 12px; margin-bottom: 6px; height: 112mm; overflow: hidden; display: flex; flex-direction: column; }
-.pf-mode-write .pf-meta { margin-bottom: 2px; }
+.pf-mode-write .pf-item { padding: 4px 12px; margin-bottom: 5px; height: 96mm; overflow: hidden; display: flex; flex-direction: column; }
+.pf-mode-write .pf-meta { margin-bottom: 1px; }
 .pf-mode-write .pf-q { font-size: 14px; flex: 0 0 auto; }
-/* 题内图片固定一行、等高 36mm：无论 1 张还是多张，都不会改变整题高度 */
+/* 题内图片固定一行、等高 34mm：无论 1 张还是多张，都不会改变整题高度 */
 .pf-mode-write .pf-imgs { display: flex; gap: 6px; margin: 2px 0; flex: 0 0 auto; }
-.pf-mode-write .pf-imgs .pf-img { flex: 1 1 0; min-width: 0; height: 36mm; width: auto; object-fit: contain; margin: 0; }
-/* 留白区吃掉剩余高度；题目偏长时先收缩留白（最小 12mm） */
-.pf-mode-write .pf-write { flex: 1 1 0; min-height: 12mm; margin-top: 6px; }
+.pf-mode-write .pf-imgs .pf-img { flex: 1 1 0; min-width: 0; height: 34mm; width: auto; object-fit: contain; margin: 0; }
+/* 留白区吃掉剩余高度；题目偏长时先收缩留白（最小 8mm） */
+.pf-mode-write .pf-write { flex: 1 1 0; min-height: 8mm; margin-top: 4px; }
 /* 混合科目导出（留白模式）时，语文/英语不需要作答区，按紧凑连排显示 */
 .pf-mode-write .pf-item.nowrite { min-height: 0; height: auto; display: block; padding: 7px 0 9px; margin-bottom: 0; border: 0; border-bottom: 1px dashed #dfe7e2; border-radius: 0; }
 .pf-mode-write .pf-item.nowrite .pf-meta { margin-bottom: 3px; gap: 6px; }
