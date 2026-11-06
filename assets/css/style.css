@@ -529,6 +529,12 @@ body {
 .pf-mode-write .pf-write { flex: 1 1 0; min-height: 28mm; margin-top: 8px; }
 /* 超高题：整页留给它（248mm + 表头仍 < 285mm，普通题 124mm 无法与其同页，自然独占一页） */
 .pf-mode-write .pf-item.tall { min-height: 248mm; }
+/* 混合科目导出（留白模式）时，语文/英语不需要作答区，按紧凑连排显示 */
+.pf-mode-write .pf-item.nowrite { min-height: 0; display: block; padding: 7px 0 9px; margin-bottom: 0; border: 0; border-bottom: 1px dashed #dfe7e2; border-radius: 0; }
+.pf-mode-write .pf-item.nowrite .pf-meta { margin-bottom: 3px; gap: 6px; }
+.pf-mode-write .pf-item.nowrite .pf-q { font-size: 13.5px; margin: 2px 0 4px; }
+.pf-mode-write .pf-item.nowrite .pf-imgs { display: block; }
+.pf-mode-write .pf-item.nowrite .pf-img { flex: none; height: auto; max-height: 52mm; width: auto; object-fit: contain; }
 /* 一题一页：固定物理高度（不能用 vh，否则屏幕测量与打印不一致） */
 .pf-mode-page .pf-item { min-height: 230mm; }
 .pf-mode-page .pf-write { min-height: 90mm; }

@@ -2568,8 +2568,9 @@
       const isP = isDictError(e);
       const q = isP ? (e.pinyin || e.text || '') : (e.text || '');
       const tall = isTall(e);
+      const nowrite = mode === 'write' && reserve && !needWrite(e); // 语文/英语：留白模式下仍按紧凑排
       return `
-      <div class="pf-item${tall ? ' tall' : ''}">
+      <div class="pf-item${tall ? ' tall' : ''}${nowrite ? ' nowrite' : ''}">
         <div class="pf-meta">
           <span class="pf-no">第 ${gNo} 题</span>
           ${subjTag(e.subject)}
@@ -2673,7 +2674,8 @@
     const pageH = m.pageH * PAGE_SAFETY;
     // 留白作答：题目部分超过一页 1/3 → 视为「超高题」，单独占一页
     const tallThreshold = m.pageH / 3;
-    const tallFlags = m.items.map(it => mode === 'write' && it.qH > tallThreshold);
+    // 只有「需要留白作答」的科目（数学等）才判定超高题；语文/英语在本模式下按紧凑排
+    const tallFlags = m.items.map((it, i) => mode === 'write' && needWrite(arr[i]) && it.qH > tallThreshold);
     // 超高题在分页模拟里按整页计，保证 5 页/份的拆分准确
     const effHeights = m.items.map((it, i) => tallFlags[i]
       ? Math.ceil(Math.max(it.h, pageH) / pageH) * pageH
