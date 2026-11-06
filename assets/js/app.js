@@ -838,6 +838,12 @@
     else arr.sort((a, b) => t(b) - t(a));
     return arr;
   }
+  // 按学科排序（学科顺序取设置里的科目顺序；同科内保持原顺序或用 tie 指定）
+  function sortBySubject(list, tie) {
+    const order = DB.getSubjects();
+    const idx = s => { const i = order.indexOf(s); return i < 0 ? 999 : i; };
+    return list.slice().sort((a, b) => (idx(a.subject) - idx(b.subject)) || (tie ? tie(a, b) : 0));
+  }
   // 某学科在当前「筛选 + 搜索」下的可见错题
   function visibleSubjectErrs(s) {
     return sortErrs(listSubjectErrs(s).filter(searchMatch));
@@ -1735,7 +1741,9 @@
     const tab = state.revTab || 'due';
     const sm = sourceMap();
     const fOn = revFilterActive() > 0;
-    const list = revListFor(tab).filter(matchRevFilter);
+    // 复习默认按学科排序（同科内按下次推送时间近→远）
+    const list = sortBySubject(revListFor(tab).filter(matchRevFilter),
+      (a, b) => DB.nextDueDate(a) - DB.nextDueDate(b));
     // 计数跟随筛选：避免「只显示 2 道，标签却写 5」
     const dueN = DB.dueReviews().filter(matchRevFilter).length;
     const redoN = redoDueList().filter(matchRevFilter).length;
@@ -2451,6 +2459,11 @@
   /* ---------------- 导出 PDF（先筛选勾选，再生成 A4） ---------------- */
   // 语文、英语不预留作答区域，其余科目预留
   function needWrite(e) { return e.subject !== '语文' && e.subject !== '英语'; }
+  // 导出默认排版：纯语文/英语 → 紧凑连排；含数学等其他科目 → 留白作答
+  function defaultModeFor(items) {
+    const langOnly = items.length > 0 && items.every(e => e.subject === '语文' || e.subject === '英语');
+    return langOnly ? 'compact' : 'write';
+  }
 
   // 第一步：在当前筛选结果（或指定 id 集合）中勾选要导出的题目
   // ids：勾选的错题 id
@@ -2467,21 +2480,24 @@
       list = DB.getErrors().filter(matchBookFilter);
     }
     if (!list.length) { toast('当前没有可导出的错题'); return; }
-    let expMode = 'compact';   // compact 紧凑连排 / write 留白作答 / page 一题一页
-    let expSort = 'pick';      // pick 勾选顺序 / subject 按科目分组
+    // 打印默认按学科排序（同学科内保持原顺序）
+    list = sortBySubject(list);
+    let expMode = defaultModeFor(list);  // compact 紧凑连排 / write 留白作答 / page 一题一页
+    let expSort = 'subject';             // pick 勾选顺序 / subject 按科目分组（默认按学科）
+    let modeTouched = false;             // 用户手动改过排版后，不再按勾选自动切换
     const body = openSheet(`
       <button class="close-x">✕</button>
       <h3>选择要导出的错题</h3>
       <p class="f-hint" style="margin:-4px 2px 12px">${hint || `已按当前筛选列出共 ${list.length} 道，勾选后导出为 A4 PDF。单份超过 5 页会自动拆分为多份 PDF（每份 ≤5 页），请逐份「另存为 PDF」。`}</p>
       <div class="exp-opts">
         <div class="exp-opt-row"><span class="exp-opt-k">排版</span><div class="kw-box" id="expMode">
-          <span class="kw active" data-v="compact">紧凑连排</span>
-          <span class="kw" data-v="write">留白作答</span>
-          <span class="kw" data-v="page">一题一页</span>
+          <span class="kw ${expMode === 'compact' ? 'active' : ''}" data-v="compact">紧凑连排</span>
+          <span class="kw ${expMode === 'write' ? 'active' : ''}" data-v="write">留白作答</span>
+          <span class="kw ${expMode === 'page' ? 'active' : ''}" data-v="page">一题一页</span>
         </div></div>
         <div class="exp-opt-row"><span class="exp-opt-k">排序</span><div class="kw-box" id="expSort">
-          <span class="kw active" data-v="pick">勾选顺序</span>
-          <span class="kw" data-v="subject">按科目分组</span>
+          <span class="kw ${expSort === 'pick' ? 'active' : ''}" data-v="pick">勾选顺序</span>
+          <span class="kw ${expSort === 'subject' ? 'active' : ''}" data-v="subject">按科目分组</span>
         </div></div>
       </div>
       <div class="btn-row" style="margin-bottom:10px">
@@ -2508,9 +2524,22 @@
         onPick(w.dataset.v);
       }));
     };
-    bindSingle('expMode', v => { expMode = v; });
+    const setModeChips = () => {
+      body.querySelectorAll('#expMode .kw').forEach(w => w.classList.toggle('active', w.dataset.v === expMode));
+    };
+    bindSingle('expMode', v => { expMode = v; modeTouched = true; });
     bindSingle('expSort', v => { expSort = v; });
-    const syncCnt = () => { $('#expCnt').textContent = body.querySelectorAll('.exp-chk:checked').length; };
+    // 勾选变化时，若用户没手动改排版，则按所选科目自动切默认排版（语文/英语→紧凑，数学等→留白）
+    const autoMode = () => {
+      if (modeTouched) return;
+      const checked = Array.from(body.querySelectorAll('.exp-chk:checked')).map(c => c.dataset.id);
+      const nm = defaultModeFor(list.filter(e => checked.includes(e.id)));
+      if (nm !== expMode) { expMode = nm; setModeChips(); }
+    };
+    const syncCnt = () => {
+      $('#expCnt').textContent = body.querySelectorAll('.exp-chk:checked').length;
+      autoMode();
+    };
     body.querySelectorAll('.exp-chk').forEach(c => c.addEventListener('change', syncCnt));
     $('#expAll').addEventListener('click', () => { body.querySelectorAll('.exp-chk').forEach(c => (c.checked = true)); syncCnt(); });
     $('#expNone').addEventListener('click', () => { body.querySelectorAll('.exp-chk').forEach(c => (c.checked = false)); syncCnt(); });
@@ -2524,19 +2553,23 @@
   }
 
   // 单册打印区 HTML（startNo 为全局起始题号，保证分册合并后题号连续）
-  function buildPrintBook(chunk, mode, reserve, modeName, sort, bookNo, bookTotal, totalCount, startNo) {
+  // tallSet：这些题「题目过高（>1/3 页）」，留白作答时单独占一页；
+  // 页首题不加 break-before（避免空白首页），其后一题与下一题用 break-before 隔开（不用 break-after，避免空白页）
+  function buildPrintBook(chunk, mode, reserve, modeName, sort, bookNo, bookTotal, totalCount, startNo, tallSet) {
     const bookInfo = bookTotal > 1 ? ` · 第 ${bookNo}/${bookTotal} 册` : '';
     const head = `
       <div class="pf-head">
         <h1 class="pf-title">错题练习卷${bookTotal > 1 ? `（${bookNo}/${bookTotal}）` : ''}</h1>
         <p class="pf-sub">本册 ${chunk.length} 道 / 共 ${totalCount} 道 · ${modeName}${sort === 'subject' ? ' · 按科目分组' : ''}${bookInfo} · 生成于 ${new Date().toLocaleString('zh-CN')}</p>
       </div>`;
+    const isTall = e => !!(tallSet && tallSet.has(e.id));
     const items = chunk.map((e, i) => {
       const gNo = (startNo || 0) + i + 1;
       const isP = isDictError(e);
       const q = isP ? (e.pinyin || e.text || '') : (e.text || '');
+      const tall = isTall(e);
       return `
-      <div class="pf-item">
+      <div class="pf-item${tall ? ' tall' : ''}">
         <div class="pf-meta">
           <span class="pf-no">第 ${gNo} 题</span>
           ${subjTag(e.subject)}
@@ -2583,7 +2616,13 @@
     };
     const head = box.querySelector('.pf-head');
     const headerH = head ? rectH(head) : 0;
-    const items = Array.from(box.querySelectorAll('.pf-item')).map(el => rectH(el));
+    // h = 整题高度（用于分页）；qH = 题目部分高度（文字+图片，用于判断是否「超高题」）
+    const items = Array.from(box.querySelectorAll('.pf-item')).map(el => {
+      const q = el.querySelector('.pf-q');
+      const im = el.querySelector('.pf-imgs');
+      const qH = (q ? rectH(q) : 0) + (im ? rectH(im) : 0);
+      return { h: rectH(el), qH };
+    });
     return { box, headerH, items, pageH: A4_CONTENT_H_MM * pxPerMm };
   }
 
@@ -2632,12 +2671,20 @@
     toast('正在计算分页…');
     const m = await measurePrintLayout(arr, mode, reserve, modeName, sort);
     const pageH = m.pageH * PAGE_SAFETY;
-    const books = splitByPages(arr, m.items, m.headerH, pageH);
+    // 留白作答：题目部分超过一页 1/3 → 视为「超高题」，单独占一页
+    const tallThreshold = m.pageH / 3;
+    const tallFlags = m.items.map(it => mode === 'write' && it.qH > tallThreshold);
+    // 超高题在分页模拟里按整页计，保证 5 页/份的拆分准确
+    const effHeights = m.items.map((it, i) => tallFlags[i]
+      ? Math.ceil(Math.max(it.h, pageH) / pageH) * pageH
+      : it.h);
+    const tallSet = new Set(arr.filter((e, i) => tallFlags[i]).map(e => e.id));
+    const books = splitByPages(arr, effHeights, m.headerH, pageH);
     if (m.box.parentNode) m.box.parentNode.removeChild(m.box);
 
     const total = books.length;
     if (total <= 1) {
-      pf.innerHTML = buildPrintBook(arr, mode, reserve, modeName, sort, 1, 1, arr.length, 0);
+      pf.innerHTML = buildPrintBook(arr, mode, reserve, modeName, sort, 1, 1, arr.length, 0, tallSet);
       setTimeout(() => window.print(), 60);
       return;
     }
@@ -2648,7 +2695,7 @@
       if (idx >= total) { toast(`已全部导出 ${total} 份 PDF（每份 ≤5 页）`); return; }
       const chunk = books[idx];
       const n = idx + 1;
-      pf.innerHTML = buildPrintBook(chunk, mode, reserve, modeName, sort, n, total, arr.length, startNo);
+      pf.innerHTML = buildPrintBook(chunk, mode, reserve, modeName, sort, n, total, arr.length, startNo, tallSet);
       startNo += chunk.length;
       idx++;
       setTimeout(() => {
