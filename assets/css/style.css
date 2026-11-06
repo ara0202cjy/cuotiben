@@ -519,9 +519,15 @@ body {
 .pf-mode-compact .pf-img { max-height: 52mm; width: auto; object-fit: contain; }
 .pf-mode-compact .pf-item .tag { font-size: 10px; padding: 1px 6px; }
 /* 留白作答：一页排 2 题，作答区随版面放大（原 34mm，约放大到半页） */
-.pf-mode-write .pf-item { padding: 10px 12px; margin-bottom: 10px; min-height: 120mm; display: flex; flex-direction: column; }
-.pf-mode-write .pf-q { font-size: 14px; }
-.pf-mode-write .pf-write { flex: 1 1 auto; min-height: 48mm; margin-top: 8px; }
+/* 留白作答：整题（题目+留白）固定高度，不随题目长短伸缩 → 始终每页 2 题，不跳页。
+   122mm × 2 + 页首表头(约 22mm) ≈ 266mm，小于 A4 可排高 285mm，留出约 19mm 安全余量。 */
+.pf-mode-write .pf-item { padding: 10px 12px; margin-bottom: 10px; height: 122mm; overflow: hidden; display: flex; flex-direction: column; }
+.pf-mode-write .pf-q { font-size: 14px; flex: 0 0 auto; }
+/* 题内图片固定一行、等高 44mm：无论 1 张还是多张，都不会改变整题高度 */
+.pf-mode-write .pf-imgs { display: flex; gap: 6px; margin: 2px 0; flex: 0 0 auto; }
+.pf-mode-write .pf-imgs .pf-img { flex: 1 1 0; min-width: 0; height: 44mm; width: auto; object-fit: contain; margin: 0; }
+/* 留白区吃掉剩余高度；题目偏长时自动收缩（最小 28mm），优先保证题目完整、整题高度不变 */
+.pf-mode-write .pf-write { flex: 1 1 0; min-height: 28mm; margin-top: 8px; overflow: hidden; }
 /* 一题一页：固定物理高度（不能用 vh，否则屏幕测量与打印不一致） */
 .pf-mode-page .pf-item { min-height: 230mm; }
 .pf-mode-page .pf-write { min-height: 90mm; }

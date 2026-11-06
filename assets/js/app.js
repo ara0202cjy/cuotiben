@@ -2542,7 +2542,7 @@
           ${subjTag(e.subject)}
         </div>
         ${q ? `<div class="pf-q">${q}</div>` : ''}
-        ${imgList(e).map(s => `<img class="pf-img zoomable" src="${s}" alt=""/>`).join('')}
+        ${imgList(e).length ? `<div class="pf-imgs">${imgList(e).map(s => `<img class="pf-img zoomable" src="${s}" alt=""/>`).join('')}</div>` : ''}
         ${(reserve && needWrite(e)) ? `<div class="pf-write"><span>作答区域</span></div>` : ''}
       </div>`;
     }).join('');
