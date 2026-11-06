@@ -426,9 +426,22 @@
     return `
       ${qFull ? `<div class="exp-q">${qFull}</div>` : ''}
       ${showImg ? imgList(e).map(s => `<img class="exp-img zoomable" src="${s}" alt=""/>`).join('') : ''}
-      <div class="exp-meta-row"><span>收录于 ${fmtDate(e.createdAt)}</span><span>做题 ${e.reviews.length} 次 · 正确 ${ok} 次 · 错误 ${bad} 次</span></div>`;
+      <div class="exp-meta-row"><span>收录于 ${fmtDate(e.createdAt)}</span><span>复习 ${e.reviews.length} 次 · 正确 ${ok} 次 · 错误 ${bad} 次</span></div>
+      ${reviewDetailHTML(e)}`;
   }
 
+  // 复习详情块（笔记本/复习页展开通用）：何时录入 + 复习/正确/错误次数 + 逐次记录（含时间，未练习显示空态）
+  function reviewDetailHTML(e) {
+    const ok = e.reviews.filter(r => r.correct).length;
+    const bad = e.reviews.length - ok;
+    if (!e.reviews.length) return '<div class="rev-detail-empty">尚未练习，暂无复习记录</div>';
+    return `<div class="records rev-detail">
+      <p class="card-h">复习详情：复习 ${e.reviews.length} 次 · 正确 ${ok} 次 · 错误 ${bad} 次</p>
+      ${e.reviews.map((r, i) => `<div class="rec"><span class="rd-idx">${i + 1}.</span>
+        <span class="${r.correct ? 'r-ok' : 'r-bad'}">${r.correct ? '✓ 答对' : '✗ 答错'}</span>
+        <span class="rd-time">${fmtDate(r.date)}</span></div>`).join('')}
+    </div>`;
+  }
   // 复习卡片展开块：在 errorExpandHTML 基础上增加「答案」区（自测模式默认遮住）
   function reviewExpandHTML(e) {
     const isP = isDictError(e);
@@ -443,7 +456,8 @@
       ${imgList(e).map(s => `<img class="exp-img zoomable" src="${s}" alt=""/>`).join('')}
       ${showAns ? `<div class="exp-ans" data-ans-body="${e.id}" hidden><span class="ga-k">答案：</span>${esc(ans)}</div>
       <button class="btn-show-ans" type="button" data-ans-btn="${e.id}">显示答案</button>` : ''}
-      <div class="exp-meta-row"><span>收录于 ${fmtDate(e.createdAt)}</span><span>做题 ${e.reviews.length} 次 · 正确 ${ok} 次 · 错误 ${bad} 次</span></div>`;
+      <div class="exp-meta-row"><span>收录于 ${fmtDate(e.createdAt)}</span><span>复习 ${e.reviews.length} 次 · 正确 ${ok} 次 · 错误 ${bad} 次</span></div>
+      ${reviewDetailHTML(e)}`;
   }
 
   function isDictError(e) {
@@ -1622,14 +1636,13 @@
       </div>
       <div class="item-meta">${metaTagsHTML(e)}</div>
       ${questionBlockHTML(e, isPinyin)}
+      <div class="item-when" style="margin-top:8px">收录于 ${fmtDate(e.createdAt)}</div>
       ${(e.answer && String(e.answer).trim()) ? `<div class="detail-ans">
         <button class="btn-show-ans" id="showAnsBtn" type="button">先自测 · 显示答案</button>
         <div class="detail-ans-body" id="ansBody" hidden><span class="ga-k">答案：</span>${esc(e.answer)}</div>
       </div>` : ''}
       <div class="item-when" style="margin-top:8px">${whenText}</div>
-      ${e.reviews.length ? `<div class="records"><p class="card-h" style="margin-top:14px">复习记录（已答对 ${e.reviews.filter(r => r.correct).length} / 共 ${e.reviews.length} 次）</p>
-        ${e.reviews.map(r => `<div class="rec"><span class="${r.correct ? 'r-ok' : 'r-bad'}">${r.correct ? '✓ 答对' : '✗ 答错'}</span>
-        <span>${fmtDate(r.date)}</span></div>`).join('')}</div>` : ''}
+      ${reviewDetailHTML(e)}
       <div class="detail-actions">
         <button class="act" id="redoEarly">提前重练</button>
         <button class="act" id="practiceOnce">加练一次</button>

@@ -430,6 +430,9 @@ body {
 .records { margin-top: 10px; }
 .rec { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); padding: 6px 0; border-top: 1px solid var(--line); }
 .rec .r-ok { color: var(--ok); } .rec .r-bad { color: var(--bad); }
+.rec .rd-idx { color: var(--ink-3); min-width: 18px; }
+.rec .rd-time { margin-left: auto; color: var(--ink-3); font-size: 12px; }
+.rev-detail-empty { font-size: 12px; color: var(--ink-3); margin-top: 8px; }
 
 /* ============ 错题本折叠（手风琴） ============ */
 .book {

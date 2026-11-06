@@ -10,7 +10,7 @@
   <meta http-equiv="Expires" content="0" />
   <script>
   (function(){
-    var APP_VER = '20261105y';
+    var APP_VER = '20261106z';
     window.addEventListener('pageshow', function(e){ if (e.persisted) location.reload(); });
     try { if (sessionStorage.getItem('cb_redirected') === '1') return; } catch(e){}
     fetch('version.json?_=' + Date.now(), { cache: 'no-store' })
@@ -26,7 +26,7 @@
   })();
   </script>
   <title>错题本 · 电脑版</title>
-  <link rel="stylesheet" href="assets/css/style.css?v=20261105y" />
+  <link rel="stylesheet" href="assets/css/style.css?v=20261106z" />
   <link rel="stylesheet" href="assets/css/mode-pc.css?v=20260911f" />
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
   <!-- 拼音库（联网加载，用于语文字词默写自动注音；离线时自动降级为手动输入） -->
@@ -90,7 +90,7 @@
   <!-- 导出 PDF 专用打印区（屏幕隐藏，打印时显示） -->
   <div id="printArea"></div>
 
-  <script src="assets/js/data.js?v=20261105y"></script>
-  <script src="assets/js/app.js?v=20261105y"></script>
+  <script src="assets/js/data.js?v=20261106z"></script>
+  <script src="assets/js/app.js?v=20261106z"></script>
 </body>
 </html>
