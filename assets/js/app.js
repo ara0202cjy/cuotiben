@@ -417,6 +417,24 @@
     $('#startToday').addEventListener('click', () => { state.revTab = revCount ? 'due' : (redoDue.length ? 'redo' : 'due'); setView('review'); });
     $('#startRedo').addEventListener('click', () => { state.revTab = redoDue.length ? 'redo' : 'due'; setView('review'); });
   }
+  // 距离下次推送的相对天数（今天/明天/N 天后/已逾期 N 天）
+  function dueRel(ts) {
+    if (!ts) return '';
+    const DAY = 86400000;
+    const d = Math.round((ts - startOfToday()) / DAY);
+    if (d < 0) return `（已逾期 ${Math.abs(d)} 天）`;
+    if (d === 0) return '（今天）';
+    if (d === 1) return '（明天）';
+    return `（${d} 天后）`;
+  }
+  // 统一的「下次推送」文案：加练中 / 已掌握停止推送 / 正常排期
+  function nextPushText(e) {
+    const po = e.practiceOnce;
+    if (po && po.due) return '🔁 加练中 · 下次推送：' + fmtDue(po.due) + dueRel(po.due);
+    if (DB.isMastered(e)) return '🟢 已掌握 · 已停止推送';
+    const t = DB.nextDueDate(e);
+    return '🔔 下次推送：' + fmtDue(t) + dueRel(t);
+  }
   // 统一展开详情块：题目全文 + 图片 + 收录时间 + 做题记录（答案不在卡片展示，仅批改页可见）
   function errorExpandHTML(e, showImg = true) {
     const isP = isDictError(e);
@@ -427,6 +445,7 @@
       ${qFull ? `<div class="exp-q">${qFull}</div>` : ''}
       ${showImg ? imgList(e).map(s => `<img class="exp-img zoomable" src="${s}" alt=""/>`).join('') : ''}
       <div class="exp-meta-row"><span>收录于 ${fmtDate(e.createdAt)}</span><span>复习 ${e.reviews.length} 次 · 正确 ${ok} 次 · 错误 ${bad} 次</span></div>
+      <div class="exp-when">${nextPushText(e)}</div>
       ${reviewDetailHTML(e)}`;
   }
 
@@ -457,6 +476,7 @@
       ${showAns ? `<div class="exp-ans" data-ans-body="${e.id}" hidden><span class="ga-k">答案：</span>${esc(ans)}</div>
       <button class="btn-show-ans" type="button" data-ans-btn="${e.id}">显示答案</button>` : ''}
       <div class="exp-meta-row"><span>收录于 ${fmtDate(e.createdAt)}</span><span>复习 ${e.reviews.length} 次 · 正确 ${ok} 次 · 错误 ${bad} 次</span></div>
+      <div class="exp-when">${nextPushText(e)}</div>
       ${reviewDetailHTML(e)}`;
   }
 
@@ -1621,10 +1641,6 @@
   function openDetail(id) {
     const e = DB.getError(id); if (!e) return;
     const isPinyin = isDictError(e);
-    const po = e.practiceOnce;
-    const whenText = (po && po.due)
-      ? '🔁 加练中 · 下次推送：' + fmtDue(po.due)
-      : (DB.isMastered(e) ? '🟢 已掌握 · 已停止推送' : '🔔 下次推送：' + fmtDue(DB.nextDueDate(e)));
     const body = openSheet(`
       <div class="detail-head">
         <h3>错题详情</h3>
@@ -1646,7 +1662,7 @@
         <button class="btn-show-ans" id="showAnsBtn" type="button">先自测 · 显示答案</button>
         <div class="detail-ans-body" id="ansBody" hidden><span class="ga-k">答案：</span>${esc(e.answer)}</div>
       </div>` : ''}
-      <div class="item-when" style="margin-top:8px">${whenText}</div>
+      <div class="detail-when">${nextPushText(e)}</div>
       ${reviewDetailHTML(e)}
       <div class="detail-actions">
         <button class="act" id="redoEarly">提前重练</button>
@@ -2533,9 +2549,9 @@
     return `<div class="pf-doc pf-mode-${mode}">${head}${items}</div>`;
   }
 
-  // A4 打印内容区（@page margin:16mm）：宽 178mm、高 265mm；单份最多 5 页
-  const A4_CONTENT_W_MM = 210 - 32;
-  const A4_CONTENT_H_MM = 297 - 32;
+  // A4 打印内容区（@page margin:6mm）：宽 198mm、高 285mm；单份最多 5 页
+  const A4_CONTENT_W_MM = 210 - 12;
+  const A4_CONTENT_H_MM = 297 - 12;
   const MAX_PAGES_PER_PDF = 5;
   // 页高安全系数：略小于真实页高，宁可提前拆分，确保每份 ≤5 页
   const PAGE_SAFETY = 0.98;

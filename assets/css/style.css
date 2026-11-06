@@ -170,6 +170,9 @@ body {
 .chip.kw-sc.active { background: var(--sc); border-color: var(--sc); color: #fff; }
 .drill-n { color: #b5701b; font-weight: 600; font-size: 11px; }
 .item-when { font-size: 11px; color: var(--ink-3); margin-top: 8px; }
+/* 下次推送时间：展开详情 / 详情页内清晰展示 */
+.exp-when { font-size: 12px; color: var(--primary-deep); background: var(--surface-2); border-radius: 8px; padding: 6px 10px; margin-top: 8px; }
+.detail-when { font-size: 13px; font-weight: 600; color: var(--primary-deep); background: var(--primary-soft); border: 1px solid var(--sc-bd, var(--line)); border-radius: 10px; padding: 8px 12px; margin-top: 10px; }
 .item-check { width: 17px; height: 17px; flex: 0 0 auto; accent-color: var(--primary); margin: 0; cursor: pointer; }
 .item.sel { border-color: var(--primary); background: var(--primary-soft); }
 /* 笔记本置顶工具栏：筛选 / 勾选 / 全选 / 展开折叠 */
@@ -515,20 +518,21 @@ body {
 .pf-mode-compact .pf-q { font-size: 13.5px; margin: 2px 0 4px; }
 .pf-mode-compact .pf-img { max-height: 52mm; width: auto; object-fit: contain; }
 .pf-mode-compact .pf-item .tag { font-size: 10px; padding: 1px 6px; }
-/* 留白作答：每题一个作答区，但不再占半页 */
-.pf-mode-write .pf-item { padding: 10px 12px; margin-bottom: 10px; }
+/* 留白作答：一页排 2 题，作答区随版面放大（原 34mm，约放大到半页） */
+.pf-mode-write .pf-item { padding: 10px 12px; margin-bottom: 10px; min-height: 120mm; display: flex; flex-direction: column; }
 .pf-mode-write .pf-q { font-size: 14px; }
-.pf-mode-write .pf-write { min-height: 34mm; }
+.pf-mode-write .pf-write { flex: 1 1 auto; min-height: 48mm; margin-top: 8px; }
 /* 一题一页：固定物理高度（不能用 vh，否则屏幕测量与打印不一致） */
 .pf-mode-page .pf-item { min-height: 230mm; }
 .pf-mode-page .pf-write { min-height: 90mm; }
-/* 离屏测量容器：与 A4 打印内容区同宽（210-16*2=178mm），不可见但参与排版 */
+/* 离屏测量容器：与 A4 打印内容区同宽（210-6*2=198mm），不可见但参与排版 */
 .pf-measure {
-  position: fixed; left: -10000px; top: 0; width: 178mm;
+  position: fixed; left: -10000px; top: 0; width: 198mm;
   visibility: hidden; pointer-events: none; z-index: -1;
 }
 @media print {
-  @page { size: A4; margin: 16mm; }
+  /* 边距 ≤6mm 时浏览器不再预留页眉页脚区域，可避免导出 PDF 带页脚/页码；同时扩大可排区 */
+  @page { size: A4; margin: 6mm; }
   html, body { background: #fff; }
   /* 打印时把 App 整个从排版中移除：
      只用 visibility:hidden 会保留 App 占位（#app 有 min-height:100vh），
