@@ -219,6 +219,14 @@ body {
 .kw.active { background: var(--primary); color: #fff; border-color: var(--primary); }
 .kw .x { opacity: .6; font-weight: 700; }
 .kw-add { color: var(--primary-deep); border-style: dashed; }
+/* 到期筛选：可自填天数的输入（几日内 / 几天后） */
+.due-nums { flex: 1 0 100%; display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 4px; }
+.due-num { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--ink-3); }
+.due-in {
+  width: 62px; padding: 5px 6px; border: 1px solid var(--line); border-radius: 9px;
+  background: var(--bg); color: var(--ink); font-size: 13px; text-align: center;
+}
+.due-in:focus { outline: none; border-color: var(--primary); }
 
 /* 筛选面板：标题与选项同行，四组横排自动换行，更紧凑 */
 .f-row { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: flex-start; margin-bottom: 14px; }

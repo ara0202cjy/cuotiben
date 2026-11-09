@@ -99,30 +99,128 @@
   /* ---------- 复习页筛选：科目 / 知识点 / 添加日期 / 到期日期 ---------- */
   const REV_CREATED = [['today', '今天'], ['7', '近 7 天'], ['30', '近 30 天'], ['older', '更早']];
   const REV_MASTERY = [['unknown', '未掌握'], ['known', '已掌握']];
-  // 到期筛选：以「今日」为第 0 天自动分桶 —— 今日到期 / N 日内到期（含今日）/ 15 天后 / 已逾期
-  const REV_DUE = [['overdue', '已逾期'], ['today', '今日到期'], ['d2', '2日内'], ['d3', '3日内'], ['d7', '7日内'], ['d15', '15日内'], ['later', '15天后']];
-  // 到期命中：overdue=早于今日；today=今天；dN=今日起 N 天内（含今日）；later=15 天之后
+  // 到期筛选：三个可同时选的选项 —— 今日到期 / 几日内到期（不含今日，N 可自填）/ 几天后（N 可自填）
+  const DUE_WITHIN_DEFAULT = 7;
+  const DUE_AFTER_DEFAULT = 15;
+  const DUE_CHIPS = [['today', '今日到期'], ['within', '几日内到期'], ['after', '几天后']];
+  // 取某类（within/after）当前填写的天数：优先取已选 key 里的值，否则用默认值
+  function dueCustomN(keys, kind, def) {
+    const pre = kind + ':';
+    const hit = (keys || []).find(k => String(k).indexOf(pre) === 0);
+    if (!hit) return def;
+    const n = parseInt(String(hit).slice(pre.length), 10);
+    return (isNaN(n) || n < 1) ? def : n;
+  }
+  // 某类选项是否处于选中态
+  function dueChipOn(keys, kind) {
+    return (keys || []).some(k => k === kind || String(k).indexOf(kind + ':') === 0);
+  }
+  // 到期命中：today=今天；within:N=明天~第 N 天（不含今日）；after:N=第 N 天之后
   function dueInRanges(t, t0, DAY, keys) {
     return (keys || []).some(k => {
-      if (k === 'overdue') return t < t0;
-      if (k === 'today') return t >= t0 && t < t0 + DAY;
-      if (k === 'later') return t >= t0 + 15 * DAY;
-      const m = /^d(\d+)$/.exec(k);
-      if (!m) return true;
-      const n = parseInt(m[1], 10);
-      return t >= t0 && t < t0 + n * DAY;
+      const s = String(k);
+      if (s === 'today') return t >= t0 && t < t0 + DAY;
+      if (s.indexOf('within:') === 0) {
+        const n = parseInt(s.slice(7), 10) || DUE_WITHIN_DEFAULT;
+        return t >= t0 + DAY && t < t0 + (n + 1) * DAY;
+      }
+      if (s.indexOf('after:') === 0) {
+        const n = parseInt(s.slice(6), 10) || DUE_AFTER_DEFAULT;
+        return t >= t0 + (n + 1) * DAY;
+      }
+      return false;
     });
   }
-  // 到期筛选的说明文案（带具体截止日期，方便确认范围）
+  // 到期筛选的说明文案（带具体日期，方便确认范围）
   function dueRangeLabel(k) {
-    if (k === 'overdue') return '已逾期';
-    if (k === 'today') return '今日到期';
-    if (k === 'later') return '15天后';
-    const m = /^d(\d+)$/.exec(k);
-    if (!m) return '';
-    const n = parseInt(m[1], 10);
-    const end = new Date(startOfToday() + n * 86400000);
-    return `${n}日内（含今日，至 ${end.getMonth() + 1}月${end.getDate()}日）`;
+    const s = String(k);
+    if (s === 'today') return '今日到期';
+    if (s.indexOf('within:') === 0) {
+      const n = parseInt(s.slice(7), 10) || DUE_WITHIN_DEFAULT;
+      const end = new Date(startOfToday() + n * 86400000);
+      return `${n}日内到期（不含今日，至 ${end.getMonth() + 1}月${end.getDate()}日）`;
+    }
+    if (s.indexOf('after:') === 0) {
+      const n = parseInt(s.slice(6), 10) || DUE_AFTER_DEFAULT;
+      const d = new Date(startOfToday() + (n + 1) * 86400000);
+      return `${n}天后（${d.getMonth() + 1}月${d.getDate()}日起）`;
+    }
+    return '';
+  }
+  // 到期筛选面板：三个 chip + 两个可自填数字（笔记本筛选 / 复习页筛选共用）
+  function dueChipsHTML(boxId, keys) {
+    const w = dueCustomN(keys, 'within', DUE_WITHIN_DEFAULT);
+    const a = dueCustomN(keys, 'after', DUE_AFTER_DEFAULT);
+    const on = kind => dueChipOn(keys, kind) ? 'active' : '';
+    return `
+      <span class="kw ${keys.length ? '' : 'active'}" data-v="">不限</span>
+      ${DUE_CHIPS.map(o => `<span class="kw ${on(o[0])}" data-v="${o[0]}">${o[1]}</span>`).join('')}
+      <span class="due-nums">
+        <label class="due-num">几日内 <input type="number" class="due-in" id="${boxId}Within" min="1" max="999" value="${w}"> 天（不含今日）</label>
+        <label class="due-num">几天后 <input type="number" class="due-in" id="${boxId}After" min="1" max="999" value="${a}"> 天</label>
+      </span>`;
+  }
+  // 到期筛选交互：chip 切换 + 数字自填（三项可同时选）
+  function bindDueFilter(body, boxId, arr, after) {
+    const box = body.querySelector('#' + boxId);
+    if (!box) return;
+    const withinIn = body.querySelector('#' + boxId + 'Within');
+    const afterIn = body.querySelector('#' + boxId + 'After');
+    const numOf = (inp, def) => {
+      const n = parseInt(inp && inp.value, 10);
+      return (isNaN(n) || n < 1) ? def : n;
+    };
+    const syncActive = () => {
+      box.querySelectorAll('.kw').forEach(w => {
+        const v = w.dataset.v;
+        let on = false;
+        if (v === '') on = arr.length === 0;
+        else if (v === 'today') on = arr.indexOf('today') >= 0;
+        else on = dueChipOn(arr, v);
+        w.classList.toggle('active', on);
+      });
+    };
+    const dropKind = kind => {
+      const pre = kind + ':';
+      for (let i = arr.length - 1; i >= 0; i--) if (String(arr[i]).indexOf(pre) === 0) arr.splice(i, 1);
+    };
+    const retagKind = (kind, n) => {
+      const pre = kind + ':';
+      let first = -1;
+      for (let i = arr.length - 1; i >= 0; i--) {
+        if (String(arr[i]).indexOf(pre) === 0) { if (first < 0) first = i; else arr.splice(i, 1); }
+      }
+      if (first >= 0) arr[first] = pre + n;
+    };
+    box.querySelectorAll('.kw').forEach(w => w.addEventListener('click', () => {
+      const v = w.dataset.v;
+      if (v === '') {
+        arr.length = 0;
+      } else if (v === 'today') {
+        const i = arr.indexOf('today');
+        if (i >= 0) arr.splice(i, 1); else arr.push('today');
+      } else {
+        if (dueChipOn(arr, v)) dropKind(v);
+        else {
+          const n = v === 'within' ? numOf(withinIn, DUE_WITHIN_DEFAULT) : numOf(afterIn, DUE_AFTER_DEFAULT);
+          arr.push(v + ':' + n);
+        }
+      }
+      syncActive();
+      if (after) after();
+    }));
+    const onNum = (kind, inp, def) => {
+      if (!inp) return;
+      inp.addEventListener('change', () => {
+        const n = numOf(inp, def);
+        inp.value = n;
+        retagKind(kind, n);
+        if (after) after();
+      });
+    };
+    onNum('within', withinIn, DUE_WITHIN_DEFAULT);
+    onNum('after', afterIn, DUE_AFTER_DEFAULT);
+    syncActive();
   }
   const REV_WRONG = [['0', '0 次'], ['1', '1 次'], ['2', '2 次'], ['3p', '≥3 次']];
   // 「我的」页筛选：按添加时间（录入到现在）分桶，单选
@@ -1262,9 +1360,8 @@
           <span class="kw ${tmp.practiced.length ? '' : 'active'}" data-v="">不限</span>
           ${BOOK_PRACTICED.map(o => `<span class="kw ${tmp.practiced.includes(o[0]) ? 'active' : ''}" data-v="${o[0]}">${o[1]}</span>`).join('')}
         </div></div>
-        <div class="f-group"><label>到期日期（可多选）</label><div class="kw-box" id="fD">
-          <span class="kw ${tmp.due.length ? '' : 'active'}" data-v="">不限</span>
-          ${REV_DUE.map(o => `<span class="kw ${tmp.due.includes(o[0]) ? 'active' : ''}" data-v="${o[0]}">${o[1]}</span>`).join('')}
+        <div class="f-group"><label>到期日期（可多选，数字可自填）</label><div class="kw-box" id="fD">
+          ${dueChipsHTML('fD', tmp.due)}
         </div></div>
         <div class="f-group"><label>添加日期（按录入日期）</label>
           <div class="date-row">
@@ -1292,7 +1389,7 @@
     bindChipMulti(body.querySelector('#fM'), tmp.mastery);
     bindChipMulti(body.querySelector('#fW'), tmp.wrong);
     bindChipMulti(body.querySelector('#fP'), tmp.practiced);
-    bindChipMulti(body.querySelector('#fD'), tmp.due);
+    bindDueFilter(body, 'fD', tmp.due);
     if (!lockSubject) {
       // 学科多选：点选切换，选中后知识点/来源按所选学科取并集
       bindChipMulti(body.querySelector('#fSubj'), tmp.subjects, () => {
@@ -1927,9 +2024,8 @@
           <span class="kw ${tmp.created.length ? '' : 'active'}" data-v="">不限</span>
           ${REV_CREATED.map(o => `<span class="kw ${tmp.created.includes(o[0]) ? 'active' : ''}" data-v="${o[0]}">${o[1]}</span>`).join('')}
         </div></div>
-        <div class="f-group"><label>到期日期（可多选）</label><div class="kw-box" id="rfDue">
-          <span class="kw ${tmp.due.length ? '' : 'active'}" data-v="">不限</span>
-          ${REV_DUE.map(o => `<span class="kw ${tmp.due.includes(o[0]) ? 'active' : ''}" data-v="${o[0]}">${o[1]}</span>`).join('')}
+        <div class="f-group"><label>到期日期（可多选，数字可自填）</label><div class="kw-box" id="rfDue">
+          ${dueChipsHTML('rfDue', tmp.due)}
         </div></div>
       </div>
       <p class="f-hint">只影响复习页显示哪些题，不改动任何做题记录；筛完可直接点「批改」整组练习。</p>
@@ -1970,7 +2066,7 @@
     bindMulti('rfMastery', 'mastery');
     bindMulti('rfWrong', 'wrong');
     bindMulti('rfCreated', 'created');
-    bindMulti('rfDue', 'due');
+    bindDueFilter(body, 'rfDue', tmp.due);
     body.querySelector('#rfReset').addEventListener('click', () => {
       state.revFilter = emptyRevFilter();
       closeSheet(); renderReview(); toast('已重置筛选');
