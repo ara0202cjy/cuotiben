@@ -87,11 +87,21 @@
   function curNs() { const a = getCurrentAccount(); return a ? 'a_' + a.name : 'local'; }
   function K(which) { return 'cb_' + curNs() + '_' + which + '_v1'; }
 
-  const DEFAULT_SUBJECTS = ['语文', '数学', '英语', '其他'];
+  // 科目顺序：语文 → 英语 → 数学 → 其他（新增的自定义科目接在后面）
+  const DEFAULT_SUBJECTS = ['语文', '英语', '数学', '其他'];
   // 科目动态管理：自动建立语数英三科错题本，可按需增删科目
   function getSubjects() {
     let s = read(K('subjects'), null);
     if (!s) { s = DEFAULT_SUBJECTS.slice(); write(K('subjects'), s); }
+    else {
+      // 规范化顺序：语英数其优先，其余科目保持原有相对顺序（老用户自动生效）
+      const canon = DEFAULT_SUBJECTS.filter(d => s.includes(d));
+      const rest = s.filter(x => !canon.includes(x));
+      const ordered = canon.concat(rest);
+      if (ordered.length !== s.length || ordered.some((x, i) => x !== s[i])) {
+        s = ordered; write(K('subjects'), s);
+      }
+    }
     return s;
   }
   function addSubject(name) {

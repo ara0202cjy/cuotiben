@@ -98,8 +98,32 @@
   }
   /* ---------- 复习页筛选：科目 / 知识点 / 添加日期 / 到期日期 ---------- */
   const REV_CREATED = [['today', '今天'], ['7', '近 7 天'], ['30', '近 30 天'], ['older', '更早']];
-  const REV_DUE = [['overdue', '已逾期'], ['d4', '未来4天'], ['d7', '未来7天'], ['d15', '未来15天'], ['later', '更远']];
   const REV_MASTERY = [['unknown', '未掌握'], ['known', '已掌握']];
+  // 到期筛选：以「今日」为第 0 天自动分桶 —— 今日到期 / N 日内到期（含今日）/ 15 天后 / 已逾期
+  const REV_DUE = [['overdue', '已逾期'], ['today', '今日到期'], ['d2', '2日内'], ['d3', '3日内'], ['d7', '7日内'], ['d15', '15日内'], ['later', '15天后']];
+  // 到期命中：overdue=早于今日；today=今天；dN=今日起 N 天内（含今日）；later=15 天之后
+  function dueInRanges(t, t0, DAY, keys) {
+    return (keys || []).some(k => {
+      if (k === 'overdue') return t < t0;
+      if (k === 'today') return t >= t0 && t < t0 + DAY;
+      if (k === 'later') return t >= t0 + 15 * DAY;
+      const m = /^d(\d+)$/.exec(k);
+      if (!m) return true;
+      const n = parseInt(m[1], 10);
+      return t >= t0 && t < t0 + n * DAY;
+    });
+  }
+  // 到期筛选的说明文案（带具体截止日期，方便确认范围）
+  function dueRangeLabel(k) {
+    if (k === 'overdue') return '已逾期';
+    if (k === 'today') return '今日到期';
+    if (k === 'later') return '15天后';
+    const m = /^d(\d+)$/.exec(k);
+    if (!m) return '';
+    const n = parseInt(m[1], 10);
+    const end = new Date(startOfToday() + n * 86400000);
+    return `${n}日内（含今日，至 ${end.getMonth() + 1}月${end.getDate()}日）`;
+  }
   const REV_WRONG = [['0', '0 次'], ['1', '1 次'], ['2', '2 次'], ['3p', '≥3 次']];
   // 「我的」页筛选：按添加时间（录入到现在）分桶，单选
   const MINE_ADDED = [['m1', '一个月内'], ['m3', '三个月内'], ['m6', '半年内'], ['m12', '一年内'], ['y1', '一年以上']];
@@ -144,16 +168,11 @@
             : k === 'older' ? c < t0 - 29 * DAY : true);
       if (!hit) return false;
     }
-    // 到期日期：命中任一选中区间即可（未到期的重练题归到「更远」）
+    // 到期日期：命中任一选中区间即可（今日到期 / N 日内含今日 / 15 天后 / 已逾期）
     const du = f.due || [];
     if (du.length) {
       const t = DB.nextDueDate(e);
-      const hit = du.some(k => k === 'overdue' ? t < t0 + DAY
-        : k === 'd4' ? (t >= t0 + DAY && t < t0 + 4 * DAY)
-          : k === 'd7' ? (t >= t0 + 4 * DAY && t < t0 + 7 * DAY)
-            : k === 'd15' ? (t >= t0 + 7 * DAY && t < t0 + 15 * DAY)
-              : k === 'later' ? t >= t0 + 15 * DAY : true);
-      if (!hit) return false;
+      if (!dueInRanges(t, t0, DAY, du)) return false;
     }
     return true;
   }
@@ -168,7 +187,7 @@
     });
     const cLab = (f.created || []).map(k => (REV_CREATED.find(x => x[0] === k) || [])[1]).filter(Boolean);
     if (cLab.length) out.push('添加：' + cLab.join(' / '));
-    const dLab = (f.due || []).map(k => (REV_DUE.find(x => x[0] === k) || [])[1]).filter(Boolean);
+    const dLab = (f.due || []).map(k => dueRangeLabel(k)).filter(Boolean);
     if (dLab.length) out.push('到期：' + dLab.join(' / '));
     const mLab = (f.mastery || []).map(k => (REV_MASTERY.find(x => x[0] === k) || [])[1]).filter(Boolean);
     if (mLab.length) out.push(mLab.join(' / '));
@@ -1146,15 +1165,10 @@
       if (f.from && day < f.from) return false;
       if (f.to && day > f.to) return false;
     }
-    // 到期日期：按下次推送时间划段
+    // 到期日期：按下次推送时间划段（今日到期 / N 日内含今日 / 15 天后 / 已逾期）
     if (du.length) {
       const t = DB.nextDueDate(e), t0 = startOfToday(), DAY = 86400000;
-      const hit = du.some(k => k === 'overdue' ? t < t0 + DAY
-        : k === 'd4' ? (t >= t0 + DAY && t < t0 + 4 * DAY)
-          : k === 'd7' ? (t >= t0 + 4 * DAY && t < t0 + 7 * DAY)
-            : k === 'd15' ? (t >= t0 + 7 * DAY && t < t0 + 15 * DAY)
-              : k === 'later' ? t >= t0 + 15 * DAY : true);
-      if (!hit) return false;
+      if (!dueInRanges(t, t0, DAY, du)) return false;
     }
     return true;
   }
