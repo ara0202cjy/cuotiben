@@ -102,7 +102,7 @@
   // 到期筛选：三个可同时选的选项 —— 今日到期 / 几日内到期（不含今日，N 可自填）/ 几天后（N 可自填）
   const DUE_WITHIN_DEFAULT = 7;
   const DUE_AFTER_DEFAULT = 15;
-  const DUE_CHIPS = [['today', '今日到期'], ['within', '几日内到期'], ['after', '几天后']];
+  const DUE_CHIPS = [['today', '今日到期'], ['within', '几日内到期'], ['after', '几天后'], ['overdue', '已逾期']];
   // 取某类（within/after）当前填写的天数：优先取已选 key 里的值，否则用默认值
   function dueCustomN(keys, kind, def) {
     const pre = kind + ':';
@@ -115,11 +115,12 @@
   function dueChipOn(keys, kind) {
     return (keys || []).some(k => k === kind || String(k).indexOf(kind + ':') === 0);
   }
-  // 到期命中：today=今天；within:N=明天~第 N 天（不含今日）；after:N=第 N 天之后
+  // 到期命中：today=今天；within:N=明天~第 N 天（不含今日）；after:N=第 N 天之后；overdue=早于今日（已逾期）
   function dueInRanges(t, t0, DAY, keys) {
     return (keys || []).some(k => {
       const s = String(k);
       if (s === 'today') return t >= t0 && t < t0 + DAY;
+      if (s === 'overdue') return t < t0;   // 已掌握题 nextDueDate=Infinity，自然排除
       if (s.indexOf('within:') === 0) {
         const n = parseInt(s.slice(7), 10) || DUE_WITHIN_DEFAULT;
         return t >= t0 + DAY && t < t0 + (n + 1) * DAY;
@@ -135,6 +136,7 @@
   function dueRangeLabel(k) {
     const s = String(k);
     if (s === 'today') return '今日到期';
+    if (s === 'overdue') return '已逾期（早于今日）';
     if (s.indexOf('within:') === 0) {
       const n = parseInt(s.slice(7), 10) || DUE_WITHIN_DEFAULT;
       const end = new Date(startOfToday() + n * 86400000);
@@ -196,9 +198,9 @@
       const v = w.dataset.v;
       if (v === '') {
         arr.length = 0;
-      } else if (v === 'today') {
-        const i = arr.indexOf('today');
-        if (i >= 0) arr.splice(i, 1); else arr.push('today');
+      } else if (v === 'today' || v === 'overdue') {
+        const i = arr.indexOf(v);
+        if (i >= 0) arr.splice(i, 1); else arr.push(v);
       } else {
         if (dueChipOn(arr, v)) dropKind(v);
         else {
@@ -1263,7 +1265,7 @@
       if (f.from && day < f.from) return false;
       if (f.to && day > f.to) return false;
     }
-    // 到期日期：按下次推送时间划段（今日到期 / N 日内含今日 / 15 天后 / 已逾期）
+    // 到期日期：按下次推送时间划段（今日到期 / N 日内到期（不含今日）/ N 天后 / 已逾期）
     if (du.length) {
       const t = DB.nextDueDate(e), t0 = startOfToday(), DAY = 86400000;
       if (!dueInRanges(t, t0, DAY, du)) return false;
