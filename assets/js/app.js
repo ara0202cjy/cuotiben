@@ -963,6 +963,17 @@
     const idx = s => { const i = order.indexOf(s); return i < 0 ? 999 : i; };
     return list.slice().sort((a, b) => (idx(a.subject) - idx(b.subject)) || (tie ? tie(a, b) : 0));
   }
+  // 知识点 / 来源：按「学科分类顺序」（语文→英语→数学→其他）排序，同科按名称稳定排序
+  // 替代原先的「加入时间/插入顺序」，使管理页、筛选、录入等各处展示一致。
+  function sortKwBySubject(list) {
+    const order = DB.getSubjects();
+    const idx = s => { const i = order.indexOf(s); return i < 0 ? 900 : i; };
+    return list.slice().sort((a, b) => {
+      const d = idx(a.subject) - idx(b.subject);
+      if (d) return d;
+      return (a.name || '').localeCompare(b.name || '', 'zh-Hans-CN');
+    });
+  }
   // 某学科在当前「筛选 + 搜索」下的可见错题
   function visibleSubjectErrs(s) {
     return sortErrs(listSubjectErrs(s).filter(searchMatch));
@@ -1183,7 +1194,7 @@
       }));
     }
     function kwListHTML(type, subject) {
-      const list = DB.getKeywords(type).filter(k => !subject || k.subject === subject);
+      const list = sortKwBySubject(DB.getKeywords(type).filter(k => !subject || k.subject === subject));
       return `<span class="kw active" data-v="">不改</span><span class="kw" data-v="__none">清空</span>`
         + list.map(k => `<span class="kw" data-v="${k.id}">${esc(k.name)}</span>`).join('');
     }
@@ -1492,13 +1503,13 @@
       </div>`;
 
     function kpOptions() {
-      const list = DB.getKeywords('kp').filter(k => k.subject === form.subject);
+      const list = sortKwBySubject(DB.getKeywords('kp').filter(k => k.subject === form.subject));
       return `<span class="kw ${!form.kpId ? 'active' : ''}" data-kp="">不选</span>
         ${list.map(k => `<span class="kw ${form.kpId === k.id ? 'active' : ''}" data-kp="${k.id}">${k.name}</span>`).join('')}
         <span class="kw kw-add" id="addKp">＋ 新增知识点</span>`;
     }
     function srcOptions() {
-      const list = DB.getKeywords('src').filter(k => k.subject === form.subject);
+      const list = sortKwBySubject(DB.getKeywords('src').filter(k => k.subject === form.subject));
       return `<span class="kw ${!form.srcId ? 'active' : ''}" data-src="">不选</span>
         ${list.map(k => `<span class="kw ${form.srcId === k.id ? 'active' : ''}" data-src="${k.id}">${k.name}</span>`).join('')}
         <span class="kw kw-add" id="addSrc">＋ 新增来源</span>`;
@@ -1990,9 +2001,9 @@
   function revKpChipsHTML(subjects, kpIds) {
     const subs = subjects || [], picked = kpIds || [];
     const errs = DB.getErrors();
-    const items = DB.getKeywords('kp')
+    const items = sortKwBySubject(DB.getKeywords('kp')
       .filter(k => !subs.length || subs.includes(k.subject))
-      .map(k => ({ id: k.id, name: k.name, subject: k.subject, n: errs.filter(e => e.kpId === k.id && (!subs.length || subs.includes(e.subject))).length }))
+      .map(k => ({ id: k.id, name: k.name, subject: k.subject, n: errs.filter(e => e.kpId === k.id && (!subs.length || subs.includes(e.subject))).length })))
       .filter(x => x.n > 0);
     return `<span class="kw ${picked.length ? '' : 'active'}" data-v="">不限</span>`
       + items.map(x => { const c = getSubjectColor(x.subject); return `<span class="kw kw-sc ${picked.includes(x.id) ? 'active' : ''}" style="${scStyle(c)}" data-v="${x.id}"><i class="subj-dot" style="background:${c}"></i>${esc(x.name)}<span class="cnt">${x.n}</span></span>`; }).join('');
@@ -2233,8 +2244,8 @@
   function mineStatHTML() {
     const f = state.mineFilter;
     const subs = DB.getSubjects();
-    const kps = DB.getKeywords('kp').filter(k => f.subject === '全部' || k.subject === f.subject);
-    const srcs = DB.getKeywords('src').filter(k => f.subject === '全部' || k.subject === f.subject);
+    const kps = sortKwBySubject(DB.getKeywords('kp').filter(k => f.subject === '全部' || k.subject === f.subject));
+    const srcs = sortKwBySubject(DB.getKeywords('src').filter(k => f.subject === '全部' || k.subject === f.subject));
     const filt = {};
     if (f.subject !== '全部') filt.subject = f.subject;
     if (f.kpId) filt.kpId = f.kpId;
@@ -2363,40 +2374,52 @@
     let selRType = 'stable';   // 新增知识点时一并选题型（稳定型 / 记忆型）
     let editingId = null;      // 正在行内编辑的知识点 id
     let editRType = 'stable';  // 编辑态中临时选中的题型
-    function listHTML() {
-      const list = DB.getKeywords(type).filter(k => k.subject === sel);
-      const errsAll = DB.getErrors();
-      return list.length ? list.map(k => {
-        const cnt = errsAll.filter(e => e.kpId === k.id || e.srcId === k.id).length;
-        // 编辑态：名称输入框 + 题型选择（仅知识点有题型），可保存 / 取消
-        if (k.id === editingId) {
-          const seg = (type === 'kp')
-            ? `<div class="seg" style="margin:10px 0 0">
-                 <span class="seg-lab">题型</span>
-                 <button type="button" class="chip ${editRType === 'stable' ? 'active' : ''}" data-edit-rt="stable">稳定型</button>
-                 <button type="button" class="chip ${editRType === 'drill' ? 'active' : ''}" data-edit-rt="drill">记忆型</button>
-               </div>` : '';
-          return `
-          <div class="item kw-edit" style="cursor:default">
-            <input class="input" id="kwEditName" value="${esc(k.name)}" placeholder="名称" />
-            ${seg}
-            <div style="display:flex;gap:10px;margin-top:10px;justify-content:flex-end">
-              <button class="btn small ghost" data-edit-cancel="${k.id}">取消</button>
-              <button class="btn small" data-edit-save="${k.id}">保存</button>
-            </div>
-          </div>`;
-        }
-        const rTag = (type === 'kp')
-          ? `<button class="opt rt ${k.rType === 'drill' ? 'on' : ''}" data-rt-toggle="${k.id}">${k.rType === 'drill' ? '记忆型' : '稳定型'}</button>`
-          : '';
+    function itemHTML(k, errsAll) {
+      const cnt = errsAll.filter(e => e.kpId === k.id || e.srcId === k.id).length;
+      // 编辑态：名称输入框 + 题型选择（仅知识点有题型），可保存 / 取消
+      if (k.id === editingId) {
+        const seg = (type === 'kp')
+          ? `<div class="seg" style="margin:10px 0 0">
+               <span class="seg-lab">题型</span>
+               <button type="button" class="chip ${editRType === 'stable' ? 'active' : ''}" data-edit-rt="stable">稳定型</button>
+               <button type="button" class="chip ${editRType === 'drill' ? 'active' : ''}" data-edit-rt="drill">记忆型</button>
+             </div>` : '';
         return `
-        <div class="item" style="display:flex;align-items:center;gap:10px;cursor:default">
-          <div style="flex:1">${esc(k.name)}${cnt ? `<span class="kw-cnt">${cnt} 道</span>` : ''}</div>
-          ${rTag}
-          <button class="opt" data-edit="${k.id}">编辑</button>
-          <button class="opt" data-del="${k.id}" style="color:var(--bad)">删</button>
+        <div class="item kw-edit" style="cursor:default">
+          <input class="input" id="kwEditName" value="${esc(k.name)}" placeholder="名称" />
+          ${seg}
+          <div style="display:flex;gap:10px;margin-top:10px;justify-content:flex-end">
+            <button class="btn small ghost" data-edit-cancel="${k.id}">取消</button>
+            <button class="btn small" data-edit-save="${k.id}">保存</button>
+          </div>
         </div>`;
-      }).join('') : '<div class="empty">该科目下暂无，点击下方新增</div>';
+      }
+      const rTag = (type === 'kp')
+        ? `<button class="opt rt ${k.rType === 'drill' ? 'on' : ''}" data-rt-toggle="${k.id}">${k.rType === 'drill' ? '记忆型' : '稳定型'}</button>`
+        : '';
+      return `
+      <div class="item" style="display:flex;align-items:center;gap:10px;cursor:default">
+        <div style="flex:1">${esc(k.name)}${cnt ? `<span class="kw-cnt">${cnt} 道</span>` : ''}</div>
+        ${rTag}
+        <button class="opt" data-edit="${k.id}">编辑</button>
+        <button class="opt" data-del="${k.id}" style="color:var(--bad)">删</button>
+      </div>`;
+    }
+    // 按学科分类顺序（语文→英语→数学→其他）分组展示全部知识点/来源；替代原单科切换 + 加入时间顺序
+    function listHTML() {
+      const errsAll = DB.getErrors();
+      const all = sortKwBySubject(DB.getKeywords(type));
+      const groups = {};
+      all.forEach(k => { const key = k.subject || '未分类'; (groups[key] = groups[key] || []).push(k); });
+      const order = [...DB.getSubjects(), '未分类'];
+      const keys = order.filter(s => groups[s] && groups[s].length)
+        .concat(Object.keys(groups).filter(s => order.indexOf(s) < 0));
+      if (!keys.length) return '<div class="empty">暂无，点击下方新增</div>';
+      return keys.map(s => `
+        <div class="kw-group">
+          <div class="kw-group-h">${esc(s)}<span class="kw-grp-cnt">${groups[s].length}</span></div>
+          ${groups[s].map(k => itemHTML(k, errsAll)).join('')}
+        </div>`).join('');
     }
     function sheetHTML() {
       const rTypeSeg = (type === 'kp')
@@ -2412,6 +2435,7 @@
           ${subjects.map(s => { const c = getSubjectColor(s); return `<button class="chip kw-sc ${s === sel ? 'active' : ''}" style="${scStyle(c)}" data-s="${s}"><i class="subj-dot" style="background:${c}"></i>${s}</button>`; }).join('')}
         </div>
         ${rTypeSeg}
+        <p class="f-hint" style="margin:6px 2px 0">下方按学科分类（语文→英语→数学→其他）分组展示全部${type === 'kp' ? '知识点' : '来源'}，点击「新增」加入上方选中科目。</p>
         <div id="kwList" style="margin-top:8px">${listHTML()}</div>
         <button class="btn" id="kwAdd" style="margin-top:12px">＋ 新增${type === 'kp' ? '知识点' : '来源'}（${sel}）</button>`;
     }
