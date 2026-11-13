@@ -1388,13 +1388,24 @@
         <button class="btn ghost" id="fReset">重置</button>
         <button class="btn" id="fApply">应用</button>
       </div>`);
-    // 知识点 / 来源：跟随所选学科（多科取并集），多选
+    // 知识点 / 来源：跟随所选学科（多科取并集），多选；按学科分组（语文→英语→数学→其他→未分类），组内按频次降序
     const fillKw = (boxId, type, key) => {
       const scope = selSubs.length ? selSubs : null;
-      const top = topKeywords(type, scope, null, 9999);
+      const top = topKeywords(type, scope, null, 9999); // [{id,name,subject,count}] 已按 count 降序
       const box = body.querySelector('#' + boxId);
-      box.innerHTML = `<span class="kw ${tmp[key].length ? '' : 'active'}" data-v="">不限</span>`
-        + top.map(k => { const c = getSubjectColor(k.subject || (selSubs[0]) || '全部'); return `<span class="kw kw-sc ${tmp[key].includes(k.id) ? 'active' : ''}" style="${scStyle(c)}" data-v="${k.id}"><i class="subj-dot" style="background:${c}"></i>${esc(k.name)}<span class="cnt">${k.count}</span></span>`; }).join('');
+      const groups = {};
+      top.forEach(k => { const g = k.subject || '未分类'; (groups[g] = groups[g] || []).push(k); });
+      const order = [...DB.getSubjects(), '未分类'];
+      const keys = order.filter(s => groups[s] && groups[s].length)
+        .concat(Object.keys(groups).filter(s => order.indexOf(s) < 0));
+      let html = `<span class="kw ${tmp[key].length ? '' : 'active'}" data-v="">不限</span>`;
+      if (keys.length) {
+        html += keys.map(s => `<span class="kw-sep">${esc(s)}</span>` + groups[s].map(k => {
+          const c = getSubjectColor(k.subject || (selSubs[0]) || '全部');
+          return `<span class="kw kw-sc ${tmp[key].includes(k.id) ? 'active' : ''}" style="${scStyle(c)}" data-v="${k.id}"><i class="subj-dot" style="background:${c}"></i>${esc(k.name)}<span class="cnt">${k.count}</span></span>`;
+        }).join('')).join('');
+      }
+      box.innerHTML = html;
       bindChipMulti(box, tmp[key]);
     };
     fillKw('fKp', 'kp', 'kpIds');

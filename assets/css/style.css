@@ -780,6 +780,17 @@ body {
 }
 .f-row.f-col .f-group > label { flex: none; }
 .f-row.f-col .f-group .kw-box { flex: none; width: 100%; }
+/* 筛选栏 chip 紧凑化：减小间距与内边距 */
+.f-row.f-col .kw-box { gap: 6px; }
+.f-row.f-col .kw { padding: 5px 10px; font-size: 12.5px; border-radius: 14px; }
+/* 知识点 / 来源按学科分组的分隔标签（非可点 chip） */
+.kw-sep {
+  display: inline-flex; align-items: center;
+  font-size: 11px; font-weight: 700; color: var(--ink-3);
+  padding: 2px 0 2px 7px; margin-right: 2px;
+  border-left: 3px solid var(--line);
+  align-self: center;
+}
 /* 筛选组变多后，底部按钮吸底，避免每次都要滑到底 */
 .f-actions {
   position: sticky; bottom: -8px; z-index: 2;
