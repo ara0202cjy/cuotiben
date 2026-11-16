@@ -713,6 +713,16 @@
     document.getElementById('loginMask').hidden = false;
   }
   function closeLoginModal() { const m = document.getElementById('loginMask'); if (m) m.hidden = true; }
+  // 历史复习记录清洗：同一天多条压成「每日最后一次」。清洗后若开启云同步则上传覆盖云端。
+  function runReviewDedupeMigrate(thenUpload) {
+    const removed = DB.migrateDedupeReviews();
+    if (!removed) return Promise.resolve(false);
+    const c = DB.getCloud();
+    if (thenUpload && c.autoSync && c.token && c.gistId) {
+      return DB.gistUpload().then(() => true).catch(() => false);
+    }
+    return Promise.resolve(true);
+  }
   function afterLogin() {
     DB.seedIfEmpty();
     const a = DB.getCurrentAccount();
@@ -722,8 +732,12 @@
     } else {
       const c = DB.getCloud();
       if (c.autoSync && c.token && c.gistId) {
-        DB.gistDownload().then(() => { toast('已从云端同步 ✓'); setView(state.view); })
+        DB.gistDownload()
+          .then(() => runReviewDedupeMigrate(true))   // 云端数据落地后清洗，并把结果上传覆盖云端
+          .then(removed => { toast(removed ? '已整理历史复习记录（每天仅保留最后一次）并同步 ✓' : '已从云端同步 ✓'); setView(state.view); })
           .catch(e => { toast('云端同步失败：' + e.message); });
+      } else {
+        runReviewDedupeMigrate(false);               // 未开云同步：仅清洗本地
       }
     }
     setView(state.view); updateRevBadge(); notifyDueReviews();

@@ -87,6 +87,27 @@
   function curNs() { const a = getCurrentAccount(); return a ? 'a_' + a.name : 'local'; }
   function K(which) { return 'cb_' + curNs() + '_' + which + '_v1'; }
 
+  // 历史数据迁移：把已存复习记录里「同一天多条」压成「每天仅最后一次」（v20261116）。
+  // 对当前登录账户（或其命名空间）执行；按账户打版本标记，只执行一次。返回清洗掉的记录条数。
+  // 无标记时不置位（数据可能尚未落地），待登录/同步后再试。
+  function migrateDedupeReviews() {
+    const errKey = K('errors');
+    const errs = read(errKey, null);
+    if (!Array.isArray(errs)) return 0;           // 当前账户本机暂无数据，等落地后再迁移
+    const flagKey = errKey + '_deduped_v1';       // 按账户命名空间的标记
+    if (read(flagKey, false)) return 0;
+    let removed = 0;
+    errs.forEach(e => {
+      if (!e || !Array.isArray(e.reviews) || e.reviews.length < 2) return;
+      const before = e.reviews.length;
+      e.reviews = dedupeReviewsByDay(e.reviews);
+      removed += before - e.reviews.length;
+    });
+    if (removed) write(errKey, errs);
+    write(flagKey, true);
+    return removed;
+  }
+
   // 科目顺序：语文 → 英语 → 数学 → 其他（新增的自定义科目接在后面）
   const DEFAULT_SUBJECTS = ['语文', '英语', '数学', '其他'];
   // 科目动态管理：自动建立语数英三科错题本，可按需增删科目
@@ -350,6 +371,19 @@
   // 取某时间戳所在日期的 0 点（毫秒）。推送一律按「日期」计算，与记录的具体时刻无关，
   // 因此到期/加练/顺延都归一到当天 0 点，每天 0 点即视为已到推送日。
   function dayStart(ts) { const d = new Date(ts); d.setHours(0, 0, 0, 0); return d.getTime(); }
+  // 把一批复习记录按「日期」去重：同一天只保留最后一条（日期/时间最新），并按日期升序返回。
+  // 用于历史数据迁移与 recordReview，保证「每天仅一次批改、记最后一次」。
+  function dedupeReviewsByDay(list) {
+    const arr = Array.isArray(list) ? list : [];
+    const byDay = new Map();
+    arr.forEach(r => {
+      if (!r || !r.date) return;
+      const d = dayStart(new Date(r.date).getTime());
+      const prev = byDay.get(d);
+      if (!prev || new Date(r.date).getTime() >= new Date(prev.date).getTime()) byDay.set(d, r);
+    });
+    return Array.from(byDay.values()).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  }
   // 排期推导（纯函数，由 reviews 实时算出，避免多端同步漂移）：
   //   anchor = 创建日；其间若有一次判错，anchor 重置为该错日、步数归零（周期从头开始）。
   //   pos = 自上次判错以来连续「对」的次数；下次推送 = anchor + 累计间隔[pos]。
@@ -677,10 +711,8 @@
       if (errDel[ce.id]) return;   // 已在删除墓碑中 → 跳过，不把已删的题并回来
       const le = map.get(ce.id);
       if (!le) { map.set(ce.id, ce); return; }
-      // 已存在：合并云端有而本地没有的复习记录（按 date 去重），保证复习历史不丢
-      const dates = new Set((le.reviews || []).map(r => r.date));
-      (ce.reviews || []).forEach(r => { if (r && r.date && !dates.has(r.date)) { le.reviews.push(r); dates.add(r.date); } });
-      (le.reviews || []).sort((a, b) => new Date(a.date) - new Date(b.date));
+      // 已存在：合并云端复习记录（按「天」去重，同一天仅保留最后一次），既保历史不丢又符合「每天一次批改」
+      le.reviews = dedupeReviewsByDay((le.reviews || []).concat(ce.reviews || []));
       // 其余字段本地优先（本地为空才用云端，避免覆盖刚刚的本地编辑）
       ['text','answer','subject','mastery','kpId','srcId','mode','pinyin','createdAt','practiceOnce'].forEach(k => {
         if (le[k] === undefined || le[k] === null || le[k] === '') le[k] = ce[k];
@@ -835,7 +867,7 @@
     // 账户
     getAccounts, getAccount, getCurrentName, getCurrentAccount,
     registerAccount, verifyAccount, setCurrentName, logout,
-    setAccountCloud, getCloud, setCloud, seedAccounts, migrateLegacy,
+    setAccountCloud, getCloud, setCloud, seedAccounts, migrateLegacy, migrateDedupeReviews,
     // 业务
     getSubjects, addSubject, deleteSubject, renameSubject, MASTERY, isChineseDictKp,
     getKeywords, addKeyword, updateKeyword, deleteKeyword, pruneUnusedKeywords,
