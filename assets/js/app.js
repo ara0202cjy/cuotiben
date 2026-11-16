@@ -2304,8 +2304,9 @@
     }));
     $('#gradeBack').addEventListener('click', backFn);
     $('#gradeSave').addEventListener('click', () => {
-      let ok = 0, bad = 0, skip = 0, none = 0, masteredNow = 0;
-      const redoSet = new Set(redoDueList().map(e => e.id));   // 批改前的重练清单
+      let ok = 0, bad = 0, skip = 0, none = 0, masteredNow = 0, redoOut = 0;
+      // 用「原始重练清单」判断（redoDueList 会过滤已掌握题，若用它会漏移出已掌握的残留）
+      const redoSet = new Set(getRedo());   // 批改前的重练清单（含已掌握残留，一并清理）
       const wasMastered = new Set(due.filter(e => DB.isMastered(e)).map(e => e.id));
       due.forEach(e => {
         if (!(e.id in sel)) { none++; return; }
@@ -2313,7 +2314,7 @@
         if (v === 'skip') { skip++; return; }   // 未练习：视为未做，保留在复习栏，不记录不推送（与「未选择」一致）
         DB.recordReview(e.id, v === 'ok');
         // 重练批改后无论对错都移出重练清单，回归正常推送周期（排期已由 recordReview 按对错算好下一次推送）
-        if (redoSet.has(e.id)) delRedo(e.id);
+        if (redoSet.has(e.id)) { delRedo(e.id); redoOut++; }
         if (v === 'ok' && !wasMastered.has(e.id) && DB.isMastered(DB.getError(e.id))) masteredNow++;
         if (v === 'ok') ok++; else bad++;
       });
@@ -2321,6 +2322,7 @@
       backFn();
       const streak = computeStreak(DB.getErrors());
       const extra = [
+        redoOut ? `已移出重练 ${redoOut} 道` : '',
         masteredNow ? `新掌握 ${masteredNow} 道` : '',
         streak ? `连续打卡 ${streak} 天` : '',
         (skip || none) ? `未练 ${skip} 道、未选 ${none} 道 保留` : ''
