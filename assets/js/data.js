@@ -178,21 +178,29 @@
   // 英语专属：单词默写（录入英文单词后自动查中文意思，生成「看中文写英文」的默写题）
   const ENGLISH_DICT_KPS = ['单词默写', '单词', '英语单词', '词汇', '单词听写'];
   function isEnglishDictKp(name) { return ENGLISH_DICT_KPS.includes(name); }
+  // 归一化并生成候选词形：原词优先，其次兼容复数 / 过去式 / ing 等常见变形（依次退档）
+  function enWordKeys(word) {
+    const k = String(word || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    if (!k) return [];
+    const keys = [k];
+    if (/ies$/.test(k)) keys.push(k.replace(/ies$/, 'y'));
+    if (/es$/.test(k)) keys.push(k.slice(0, -2));
+    if (/s$/.test(k)) keys.push(k.slice(0, -1));
+    if (/ied$/.test(k)) keys.push(k.replace(/ied$/, 'y'));
+    if (/ed$/.test(k)) keys.push(k.slice(0, -2), k.slice(0, -1));
+    if (/ing$/.test(k)) keys.push(k.slice(0, -3), k.slice(0, -3) + 'e');
+    return keys.filter(Boolean);
+  }
   // 查英汉词库：返回中文释义（未收录返回 ''）。兼容大小写、首尾空格与多余空格。
   function lookupEn(word) {
     const v = (global && global.EN_VOCAB) || {};
-    const k = String(word || '').trim().toLowerCase().replace(/\s+/g, ' ');
-    if (!k) return '';
-    if (v[k]) return v[k];
-    // 兼容复数 / 过去式等常见变形：依次退回 去 s / es / ed / ing / y→i 等
-    const tries = [];
-    if (/ies$/.test(k)) tries.push(k.replace(/ies$/, 'y'));
-    if (/es$/.test(k)) tries.push(k.slice(0, -2));
-    if (/s$/.test(k)) tries.push(k.slice(0, -1));
-    if (/ied$/.test(k)) tries.push(k.replace(/ied$/, 'y'));
-    if (/ed$/.test(k)) tries.push(k.slice(0, -2), k.slice(0, -1));
-    if (/ing$/.test(k)) tries.push(k.slice(0, -3), k.slice(0, -3) + 'e');
-    for (const t of tries) if (t && v[t]) return v[t];
+    for (const k of enWordKeys(word)) if (v[k]) return v[k];
+    return '';
+  }
+  // 查音标（未收录返回 ''）。取同一个词形的音标；变形词退回原形音标。
+  function lookupEnPhon(word) {
+    const p = (global && global.EN_PHON) || {};
+    for (const k of enWordKeys(word)) if (p[k]) return p[k];
     return '';
   }
 
@@ -889,7 +897,7 @@
     registerAccount, verifyAccount, setCurrentName, logout,
     setAccountCloud, getCloud, setCloud, seedAccounts, migrateLegacy, migrateDedupeReviews,
     // 业务
-    getSubjects, addSubject, deleteSubject, renameSubject, MASTERY, isChineseDictKp, isEnglishDictKp, lookupEn,
+    getSubjects, addSubject, deleteSubject, renameSubject, MASTERY, isChineseDictKp, isEnglishDictKp, lookupEn, lookupEnPhon,
     getKeywords, addKeyword, updateKeyword, deleteKeyword, pruneUnusedKeywords,
     getErrors, getError, addError, updateError, deleteError,
     nextDueDate, isMastered, dueReviews, recordReview, getRType, isSchoolSource, setKeywordRType,

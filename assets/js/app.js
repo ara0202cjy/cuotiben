@@ -561,7 +561,7 @@
     const ok = e.reviews.filter(r => r.correct).length;
     const bad = e.reviews.length - ok;
     return `
-      ${qFull ? `<div class="q-line"><div class="exp-q">${qFull}</div>${speakBtnHTML(e)}</div>` : ''}
+      ${qFull ? `<div class="q-line"><div class="exp-q">${qFull}${enPhonHTML(e)}</div>${speakBtnHTML(e)}</div>` : ''}
       ${showImg ? imgList(e).map(s => `<img class="exp-img zoomable" src="${s}" alt=""/>`).join('') : ''}
       <div class="exp-meta-row"><span>收录于 ${fmtDate(e.createdAt)}</span><span>复习 ${e.reviews.length} 次 · 正确 ${ok} 次 · 错误 ${bad} 次</span></div>
       <div class="exp-when">${nextPushText(e)}</div>
@@ -590,7 +590,7 @@
     // 自测模式开：答案遮住，点本题「显示答案」才展开；自测模式关：完全不显示答案
     const showAns = !!(state.selfTest && ans);
     return `
-      ${qFull ? `<div class="q-line"><div class="exp-q">${qFull}</div>${speakBtnHTML(e)}</div>` : ''}
+      ${qFull ? `<div class="q-line"><div class="exp-q">${qFull}${enPhonHTML(e)}</div>${speakBtnHTML(e)}</div>` : ''}
       ${imgList(e).map(s => `<img class="exp-img zoomable" src="${s}" alt=""/>`).join('')}
       ${showAns ? `<div class="exp-ans" data-ans-body="${e.id}" hidden><span class="ga-k">答案：</span>${esc(ans)}</div>
       <button class="btn-show-ans" type="button" data-ans-btn="${e.id}">显示答案</button>` : ''}
@@ -627,6 +627,15 @@
       synth.speak(u);
     } catch (err) { toast('朗读失败：' + (err && err.message ? err.message : err)); }
   }
+  // 音标：仅「英语单词默写」题、且词库有该词音标时显示（题目内展示，打印也保留）
+  function enPhonHTML(e) {
+    if (!isEnDictError(e)) return '';
+    const w = String(e.answer || '').trim();
+    if (!w) return '';
+    const p = DB.lookupEnPhon(w);
+    if (!p) return '';
+    return `<span class="en-phon">${esc(p)}</span>`;
+  }
   // 朗读按钮：仅「英语单词默写」题、且有英文答案时出现（答案即要朗读的单词）
   function speakBtnHTML(e, cls) {
     if (!isEnDictError(e)) return '';
@@ -643,7 +652,7 @@
     let h = '';
     if (qText) {
       const hint = isEnDictError(e) ? '<span class="en-ask">（写出英文单词）</span>' : '';
-      h += `<div class="q-line"><div class="detail-q">${qText}${hint}</div>${speakBtnHTML(e)}</div>`;
+      h += `<div class="q-line"><div class="detail-q">${qText}${enPhonHTML(e)}${hint}</div>${speakBtnHTML(e)}</div>`;
     }
     h += imgs.map(s => `<img class="detail-img zoomable" src="${s}" alt=""/>`).join('');
     return h || '<div class="detail-q">（无内容）</div>';
@@ -661,7 +670,7 @@
           ${selectable ? `<input type="checkbox" class="item-check" data-id="${e.id}" ${selected ? 'checked' : ''} aria-label="选择"/>` : ''}
           ${metaTagsHTML(e, { subject: false, mastery: false })}
         </div>
-        ${q ? `<div class="q-line"><div class="item-q">${q}</div>${speakBtnHTML(e)}</div>` : ''}
+        ${q ? `<div class="q-line"><div class="item-q">${q}${enPhonHTML(e)}</div>${speakBtnHTML(e)}</div>` : ''}
         ${hasImg ? imgs.map(s => `<img class="item-img zoomable" src="${s}" alt=""/>`).join('') : ''}
         ${expandable ? `<div class="item-exp" hidden>${errorExpandHTML(e, false)}</div>` : `
         <div class="item-when">录入于 ${fmtDate(e.createdAt)}</div>`}
@@ -2865,6 +2874,8 @@
       const gNo = baseNo + j + 1;
       const isP = isDictError(e);
       const q = isP ? (e.pinyin || e.text || '') : (e.text || '');
+      // 英语单词默写题：题目（中文意思）后附音标，打印/导出 PDF 也显示
+      const phon = isEnDictError(e) && e.answer ? DB.lookupEnPhon(String(e.answer).trim()) : '';
       const nowrite = mode === 'write' && reserve && !needWrite(e); // 语文/英语：留白模式下仍按紧凑排
       return `
       <div class="pf-item${nowrite ? ' nowrite' : ''}">
@@ -2872,7 +2883,7 @@
           <span class="pf-no">第 ${gNo} 题</span>
           ${subjTag(e.subject)}
         </div>
-        ${q ? `<div class="pf-q">${q}</div>` : ''}
+        ${q ? `<div class="pf-q">${q}${phon ? `<span class="en-phon">${esc(phon)}</span>` : ''}</div>` : ''}
         ${imgList(e).length ? `<div class="pf-imgs">${imgList(e).map(s => `<img class="pf-img zoomable" src="${s}" alt=""/>`).join('')}</div>` : ''}
         ${(reserve && needWrite(e)) ? `<div class="pf-write"><span>作答区域</span></div>` : ''}
       </div>`;
