@@ -531,6 +531,17 @@ body {
 .pf-mode-compact .pf-q { font-size: 13.5px; margin: 2px 0 4px; }
 .pf-mode-compact .pf-img { max-height: 52mm; width: auto; object-fit: contain; }
 .pf-mode-compact .pf-item .tag { font-size: 10px; padding: 1px 6px; }
+/* 紧凑连排 - 短题三栏：连续 3 道短题并排一行，充分利用页宽 */
+.pf-row { page-break-inside: avoid; break-inside: avoid; }
+.pf-grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; align-items: start; margin-bottom: 6px; }
+.pf-grid3 .pf-item {
+  padding: 4px 6px 6px; margin: 0; border: 0; border-bottom: 1px dashed #dfe7e2; border-radius: 0;
+  overflow: hidden; min-width: 0;
+}
+.pf-grid3 .pf-meta { margin-bottom: 2px; gap: 4px; flex-wrap: wrap; }
+.pf-grid3 .pf-no { font-size: 12px; }
+.pf-grid3 .pf-q { font-size: 12px; margin: 2px 0; word-break: break-word; }
+.pf-grid3 .pf-imgs { display: none; }  /* 短题判定已排除带图题，双保险 */
 /* 固定整题 118mm：一页严格 2 题（即使打印引擎的可用页高更小也能放下）。
    题目在顶部优先显示，题目偏长时优先压缩下方留白区；极长题也不会挤掉第二题。 */
 .pf-mode-write .pf-item { padding: 4px 12px; margin-bottom: 5px; height: 96mm; overflow: hidden; display: flex; flex-direction: column; }

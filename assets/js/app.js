@@ -99,10 +99,10 @@
   /* ---------- 复习页筛选：科目 / 知识点 / 添加日期 / 到期日期 ---------- */
   const REV_CREATED = [['today', '今天'], ['7', '近 7 天'], ['30', '近 30 天'], ['older', '更早']];
   const REV_MASTERY = [['unknown', '未掌握'], ['known', '已掌握']];
-  // 到期筛选：三个可同时选的选项 —— 今日到期 / 几日内到期（不含今日，N 可自填）/ 几天后（N 可自填）
+  // 到期筛选：选项顺序 —— 已逾期 / 今日到期 / 几日内到期（不含今日，N 可自填）/ 几天后（N 可自填），可同时选
   const DUE_WITHIN_DEFAULT = 7;
   const DUE_AFTER_DEFAULT = 15;
-  const DUE_CHIPS = [['today', '今日到期'], ['within', '几日内到期'], ['after', '几天后'], ['overdue', '已逾期']];
+  const DUE_CHIPS = [['overdue', '已逾期'], ['today', '今日到期'], ['within', '几日内到期'], ['after', '几天后']];
   // 取某类（within/after）当前填写的天数：优先取已选 key 里的值，否则用默认值
   function dueCustomN(keys, kind, def) {
     const pre = kind + ':';
@@ -1247,12 +1247,21 @@
   function wrongCount(e) { return (e.reviews || []).filter(r => !r.correct).length; }
   // 笔记本「已练习次数」筛选分桶（总练习次数 = (e.reviews||[]).length，含答对与答错）
   const BOOK_PRACTICED = [['0', '0 次'], ['1_2', '1–2 次'], ['3_5', '3–5 次'], ['6p', '≥6 次']];
+  // 笔记本「最后一次情况」：取最后一次批改结果（按日期最新一条）；无记录=未练习
+  const LAST_RESULT = [['bad', '错误'], ['ok', '正确'], ['none', '未练习']];
+  function lastReviewResult(e) {
+    const rs = e.reviews || [];
+    if (!rs.length) return 'none';
+    let last = rs[0];
+    for (let i = 1; i < rs.length; i++) if (new Date(rs[i].date).getTime() >= new Date(last.date).getTime()) last = rs[i];
+    return last.correct === false || last.result === 'bad' ? 'bad' : 'ok';
+  }
   // 笔记本筛选默认值（全部不限）
-  function emptyBookFilter() { return { subjects: [], kpIds: [], srcIds: [], mastery: [], wrong: [], practiced: [], due: [], from: null, to: null }; }
+  function emptyBookFilter() { return { subjects: [], kpIds: [], srcIds: [], mastery: [], wrong: [], practiced: [], lastResult: [], due: [], from: null, to: null }; }
   // 笔记本筛选：同组多选取「或」，组间取「且」
   function matchBookFilter(e) {
     const f = state.filter || {};
-    const subs = f.subjects || [], kp = f.kpIds || [], src = f.srcIds || [], ma = f.mastery || [], wr = f.wrong || [], du = f.due || [];
+    const subs = f.subjects || [], kp = f.kpIds || [], src = f.srcIds || [], ma = f.mastery || [], wr = f.wrong || [], du = f.due || [], lr = f.lastResult || [];
     // 学科：可多选，命中任一即可
     if (subs.length && !subs.includes(e.subject)) return false;
     if (kp.length && !kp.includes(e.kpId)) return false;
@@ -1270,6 +1279,8 @@
       const hit = pr.some(k => k === '0' ? n === 0 : k === '1_2' ? (n >= 1 && n <= 2) : k === '3_5' ? (n >= 3 && n <= 5) : n >= 6);
       if (!hit) return false;
     }
+    // 最后一次情况：错误 / 正确 / 未练习（命中任一即可）
+    if (lr.length && !lr.includes(lastReviewResult(e))) return false;
     // 添加日期：按录入日期（YYYY-MM-DD，含边界）
     if (f.from || f.to) {
       const day = (e.createdAt || '').slice(0, 10);
@@ -1306,7 +1317,7 @@
     const f = state.filter || {};
     let n = 0;
     if ((f.subjects || []).length) n++;
-    ['kpIds', 'srcIds', 'mastery', 'wrong', 'practiced', 'due'].forEach(k => { if ((f[k] || []).length) n++; });
+    ['kpIds', 'srcIds', 'mastery', 'wrong', 'practiced', 'lastResult', 'due'].forEach(k => { if ((f[k] || []).length) n++; });
     if (f.from || f.to) n++;
     return n ? `（${n}）` : '';
   }
@@ -1343,7 +1354,7 @@
   function openFilter(lockSubject) {
     const src = state.filter || {};
     const tmp = emptyBookFilter();
-    ['subjects', 'kpIds', 'srcIds', 'mastery', 'wrong', 'practiced', 'due'].forEach(k => { tmp[k] = [...(src[k] || [])]; });
+    ['subjects', 'kpIds', 'srcIds', 'mastery', 'wrong', 'practiced', 'lastResult', 'due'].forEach(k => { tmp[k] = [...(src[k] || [])]; });
     tmp.from = src.from || ''; tmp.to = src.to || '';
     let selSubs = lockSubject ? [lockSubject] : (tmp.subjects || []).slice();
     const allErrs = DB.getErrors();
@@ -1372,6 +1383,10 @@
         <div class="f-group"><label>已练习次数（可多选）</label><div class="kw-box" id="fP">
           <span class="kw ${tmp.practiced.length ? '' : 'active'}" data-v="">不限</span>
           ${BOOK_PRACTICED.map(o => `<span class="kw ${tmp.practiced.includes(o[0]) ? 'active' : ''}" data-v="${o[0]}">${o[1]}</span>`).join('')}
+        </div></div>
+        <div class="f-group"><label>最后一次情况（可多选）</label><div class="kw-box" id="fLast">
+          <span class="kw ${tmp.lastResult.length ? '' : 'active'}" data-v="">不限</span>
+          ${LAST_RESULT.map(o => `<span class="kw ${tmp.lastResult.includes(o[0]) ? 'active' : ''}" data-v="${o[0]}">${o[1]}</span>`).join('')}
         </div></div>
         <div class="f-group"><label>到期日期（可多选，数字可自填）</label><div class="kw-box" id="fD">
           ${dueChipsHTML('fD', tmp.due)}
@@ -1413,6 +1428,7 @@
     bindChipMulti(body.querySelector('#fM'), tmp.mastery);
     bindChipMulti(body.querySelector('#fW'), tmp.wrong);
     bindChipMulti(body.querySelector('#fP'), tmp.practiced);
+    bindChipMulti(body.querySelector('#fLast'), tmp.lastResult);
     bindDueFilter(body, 'fD', tmp.due);
     if (!lockSubject) {
       // 学科多选：点选切换，选中后知识点/来源按所选学科取并集
@@ -1938,7 +1954,7 @@
         <button data-tab="all" class="${tab === 'all' ? 'on' : ''}">全部<i>${allN}</i></button>
       </div>
       <p class="rev-tip">${tab === 'redo'
-        ? '重练题来自你手动勾选：答对即移出重练清单，答错明天再推，直到全对。'
+        ? '重练题来自你手动勾选：批改后无论对错都会进入下一轮推送，并自动移出重练清单。'
         : (tab === 'overdue' ? '这里列出已到复习日的题（含今天到期），越靠前逾期越久，建议先练。'
           : (tab === 'star' ? '★ 重点是你在卡片上标星的题；未到期的也可在这里提前练，批改后按正常周期推进。'
             : (state.selfTest
@@ -2149,7 +2165,7 @@
         <span class="grade-title">${gTitle} · 共 ${due.length} 道</span>
         <button class="btn small" id="gradeSave">保存批改</button>
       </div>
-      <p class="grade-tip">先凭记忆自测，需要核对时点「显示答案」，再勾选「对 / 错」；点「未练习」表示本次不练习，该错题仍保留在复习栏（不记录、不推送）。重练清单里的题答对后会自动移出重练。</p>
+      <p class="grade-tip">先凭记忆自测，需要核对时点「显示答案」，再勾选「对 / 错」；点「未练习」表示本次不练习，该错题仍保留在复习栏（不记录、不推送）。重练题批改后无论对错，都会进入下一轮推送并自动移出重练清单。</p>
       <div id="gradeList">
         ${due.map(e => gradeItemHTML(e, sm, !gradeMixed)).join('')}
       </div>`;
@@ -2180,8 +2196,8 @@
         const v = sel[e.id];
         if (v === 'skip') { skip++; return; }   // 未练习：视为未做，保留在复习栏，不记录不推送（与「未选择」一致）
         DB.recordReview(e.id, v === 'ok');
-        // 混合队列：无论来自哪个标签，只要这道题在重练清单里且这次答对，就移出重练（不删题库、不丢记录）
-        if (v === 'ok' && redoSet.has(e.id)) delRedo(e.id);
+        // 重练批改后无论对错都移出重练清单，回归正常推送周期（排期已由 recordReview 按对错算好下一次推送）
+        if (redoSet.has(e.id)) delRedo(e.id);
         if (v === 'ok' && !wasMastered.has(e.id) && DB.isMastered(DB.getError(e.id))) masteredNow++;
         if (v === 'ok') ok++; else bad++;
       });
@@ -2611,6 +2627,22 @@
     const langOnly = items.length > 0 && items.every(e => e.subject === '语文' || e.subject === '英语');
     return langOnly ? 'compact' : 'write';
   }
+  // 短题判定：题干「汉字当量」< 13（1 汉字=1，1 英文字母=0.5 → 26 英文字符等价 13 汉字）。
+  // 带图片的题即使文字短也不按短题处理（3 栏窄列会挤坏图片）。
+  function textCharWeight(s) {
+    const str = String(s || '');
+    let han = 0, en = 0;
+    for (const ch of str) {
+      if (/[\u3400-\u9fff]/.test(ch)) han++;
+      else if (/[A-Za-z]/.test(ch)) en++;
+    }
+    return han + en / 2;
+  }
+  function isShortQuestion(e) {
+    if ((imgList(e) || []).length) return false;
+    const q = isDictError(e) ? (e.pinyin || e.text || '') : (e.text || '');
+    return textCharWeight(q) < 13;
+  }
 
   // 第一步：在当前筛选结果（或指定 id 集合）中勾选要导出的题目
   // ids：勾选的错题 id
@@ -2677,8 +2709,11 @@
       const tip = body.querySelector('#expModeTip'); if (!tip) return;
       if (expMode !== 'auto') { tip.textContent = ''; return; }
       const checked = Array.from(body.querySelectorAll('.exp-chk:checked')).map(c => c.dataset.id);
-      const m = defaultModeFor(list.filter(e => checked.includes(e.id)));
-      tip.textContent = '默认按学科：' + ({ compact: '紧凑连排', write: '留白作答' }[m] || '留白作答');
+      const sel = list.filter(e => checked.includes(e.id));
+      const m = defaultModeFor(sel);
+      let t = '默认按学科：' + ({ compact: '紧凑连排', write: '留白作答' }[m] || '留白作答');
+      if (m === 'compact' && sel.some(isShortQuestion)) t += ' · 短题（<13 汉字）自动 3 栏';
+      tip.textContent = t;
     };
     bindSingle('expMode', v => { expMode = v; updateModeTip(); });
     bindSingle('expSort', v => { expSort = v; });
@@ -2700,16 +2735,27 @@
     });
   }
 
-  // 单册打印区 HTML（startNo 为全局起始题号，保证分册合并后题号连续）
-  function buildPrintBook(chunk, mode, reserve, modeName, sort, bookNo, bookTotal, totalCount, startNo) {
-    const bookInfo = bookTotal > 1 ? ` · 第 ${bookNo}/${bookTotal} 册` : '';
-    const head = `
-      <div class="pf-head">
-        <h1 class="pf-title">错题练习卷${bookTotal > 1 ? `（${bookNo}/${bookTotal}）` : ''}</h1>
-        <p class="pf-sub">本册 ${chunk.length} 道 / 共 ${totalCount} 道 · ${modeName}${sort === 'subject' ? ' · 按科目分组' : ''}${bookInfo}</p>
-      </div>`;
-    const items = chunk.map((e, i) => {
-      const gNo = (startNo || 0) + i + 1;
+  // 把有序题目切成「行」：紧凑模式下短题每 3 道一行（3 栏），其余题单独一行。
+  // 每行形如 { items:[e,...], grid:boolean }；测量与打印共用此函数，保证排版一致。
+  function printRows(chunk, mode, grid3) {
+    const rows = [];
+    let buf = [];
+    // buf 内均为短题：无论 1/2/3 道都用三栏容器（不足 3 道则留空列），保证短题排布一致
+    const flush = () => { if (buf.length) { rows.push({ items: buf.slice(), grid: true }); buf = []; } };
+    chunk.forEach(e => {
+      const short = grid3 && mode === 'compact' && isShortQuestion(e);
+      if (short) {
+        buf.push(e);
+        if (buf.length === 3) flush();
+      } else { flush(); rows.push({ items: [e], grid: false }); }
+    });
+    flush();
+    return rows;
+  }
+  // 渲染单行（行内题号按全局起始号 + 块内偏移）
+  function renderPrintRow(row, mode, reserve, baseNo, sort) {
+    const itemHTML = row.items.map((e, j) => {
+      const gNo = baseNo + j + 1;
       const isP = isDictError(e);
       const q = isP ? (e.pinyin || e.text || '') : (e.text || '');
       const nowrite = mode === 'write' && reserve && !needWrite(e); // 语文/英语：留白模式下仍按紧凑排
@@ -2724,7 +2770,26 @@
         ${(reserve && needWrite(e)) ? `<div class="pf-write"><span>作答区域</span></div>` : ''}
       </div>`;
     }).join('');
-    return `<div class="pf-doc pf-mode-${mode}">${head}${items}</div>`;
+    return row.grid
+      ? `<div class="pf-row pf-grid3">${itemHTML}</div>`
+      : `<div class="pf-row">${itemHTML}</div>`;
+  }
+  // 单册打印区 HTML（startNo 为全局起始题号，保证分册合并后题号连续）
+  function buildPrintBook(chunk, mode, reserve, modeName, sort, bookNo, bookTotal, totalCount, startNo, grid3) {
+    const bookInfo = bookTotal > 1 ? ` · 第 ${bookNo}/${bookTotal} 册` : '';
+    const head = `
+      <div class="pf-head">
+        <h1 class="pf-title">错题练习卷${bookTotal > 1 ? `（${bookNo}/${bookTotal}）` : ''}</h1>
+        <p class="pf-sub">本册 ${chunk.length} 道 / 共 ${totalCount} 道 · ${modeName}${sort === 'subject' ? ' · 按科目分组' : ''}${bookInfo}</p>
+      </div>`;
+    const rows = printRows(chunk, mode, grid3);
+    let no = (startNo || 0);
+    const body = rows.map(row => {
+      const html = renderPrintRow(row, mode, reserve, no, sort);
+      no += row.items.length;
+      return html;
+    }).join('');
+    return `<div class="pf-doc pf-mode-${mode}">${head}${body}</div>`;
   }
 
   // A4 打印内容区（@page margin:6mm）：宽 198mm、高 285mm；单份最多 5 页
@@ -2734,11 +2799,11 @@
   // 页高安全系数：略小于真实页高，宁可提前拆分，确保每份 ≤5 页
   const PAGE_SAFETY = 0.98;
 
-  // 离屏测量：把整份内容按打印版式渲染，等图片就位后量出表头与每题的真实高度
-  async function measurePrintLayout(arr, mode, reserve, modeName, sort) {
+  // 离屏测量：把整份内容按打印版式渲染，等图片就位后量出表头与每行的真实高度
+  async function measurePrintLayout(arr, mode, reserve, modeName, sort, grid3) {
     const box = document.createElement('div');
     box.className = 'pf-measure';
-    box.innerHTML = buildPrintBook(arr, mode, reserve, modeName, sort, 1, 1, arr.length, 0);
+    box.innerHTML = buildPrintBook(arr, mode, reserve, modeName, sort, 1, 1, arr.length, 0, grid3);
     document.body.appendChild(box);
     // 等图片加载完（最多 3 秒兜底），否则图片高度为 0 会低估页数
     const imgs = Array.from(box.querySelectorAll('img'));
@@ -2761,31 +2826,44 @@
     };
     const head = box.querySelector('.pf-head');
     const headerH = head ? rectH(head) : 0;
-    const items = Array.from(box.querySelectorAll('.pf-item')).map(el => rectH(el));
-    return { box, headerH, items, pageH: A4_CONTENT_H_MM * pxPerMm };
+    // 以「行」为测量单位：grid3 行把多题并排高度压成一行高，避免按题重复累加导致页数翻倍
+    const rows = Array.from(box.querySelectorAll('.pf-row')).map(el => ({
+      height: rectH(el), count: el.querySelectorAll('.pf-item').length
+    }));
+    return { box, headerH, rows, pageH: A4_CONTENT_H_MM * pxPerMm };
   }
 
-  // 按真实页高把题目分组成若干份，每份 ≤ MAX_PAGES_PER_PDF 页
-  function splitByPages(arr, heights, headerH, pageH) {
+  // 按真实页高把「行」分组成若干份，每份 ≤ MAX_PAGES_PER_PDF 页；返回每份的题目数组
+  // rows: [{height, count}]，count 为该行题目数（grid3 行可能含 3 题）
+  // 以行索引切分（行不可分割），再把行索引映射回题目数组，保证短题 3 栏不被拆散到不同分册
+  function splitByPages(arr, rows, headerH, pageH) {
     const books = [];
-    let cur = [], filled = headerH, pages = 1;
-    for (let i = 0; i < heights.length; i++) {
-      const h = heights[i];
+    let curRows = [], filled = headerH, pages = 1;
+    for (let i = 0; i < rows.length; i++) {
+      const h = rows[i].height;
       let nFilled = filled, nPages = pages;
       if (nFilled + h > pageH) { nPages++; nFilled = 0; }
       nFilled += h;
       // 加入后超过 5 页 → 当前份收尾，从新的一份重新开始（新份带表头）
-      if (nPages > MAX_PAGES_PER_PDF && cur.length) {
-        books.push(cur);
-        cur = []; filled = headerH; pages = 1;
+      if (nPages > MAX_PAGES_PER_PDF && curRows.length) {
+        books.push(curRows);
+        curRows = []; filled = headerH; pages = 1;
         nFilled = headerH; nPages = 1;
         if (nFilled + h > pageH) { nPages++; nFilled = 0; }
         nFilled += h;
       }
-      cur.push(arr[i]); filled = nFilled; pages = nPages;
+      curRows.push(i); filled = nFilled; pages = nPages;
     }
-    if (cur.length) books.push(cur);
-    return books;
+    if (curRows.length) books.push(curRows);
+    // 行索引 → 题目数组（按 arr 顺序累计题数）
+    const rowStart = [];
+    let acc = 0;
+    rows.forEach(r => { rowStart.push(acc); acc += r.count; });
+    return books.map(idxs => {
+      const out = [];
+      idxs.forEach(ri => { for (let j = 0; j < rows[ri].count; j++) out.push(arr[rowStart[ri] + j]); });
+      return out;
+    });
   }
 
   // 第二步：生成 A4 打印区
@@ -2805,18 +2883,20 @@
     }
     const reserve = mode === 'write' || mode === 'page';
     const modeName = { compact: '紧凑连排', write: '留白作答', page: '一题一页' }[mode] || '紧凑连排';
+    // 三栏仅用于紧凑连排（含「默认」解析出的紧凑）：有短题才启用
+    const grid3 = mode === 'compact' && arr.some(isShortQuestion);
     const pf = $('#printArea');
 
     toast('正在计算分页…');
-    const m = await measurePrintLayout(arr, mode, reserve, modeName, sort);
+    const m = await measurePrintLayout(arr, mode, reserve, modeName, sort, grid3);
     // 留白作答为固定版式，实测高即可靠；用 0.995 而非 0.98，避免把「2 题/页」误算成 1 题/页
     const pageH = m.pageH * (mode === 'write' ? 0.995 : PAGE_SAFETY);
-    const books = splitByPages(arr, m.items, m.headerH, pageH);
+    const books = splitByPages(arr, m.rows, m.headerH, pageH);
     if (m.box.parentNode) m.box.parentNode.removeChild(m.box);
 
     const total = books.length;
     if (total <= 1) {
-      pf.innerHTML = buildPrintBook(arr, mode, reserve, modeName, sort, 1, 1, arr.length, 0);
+      pf.innerHTML = buildPrintBook(arr, mode, reserve, modeName, sort, 1, 1, arr.length, 0, grid3);
       setTimeout(() => window.print(), 60);
       return;
     }
@@ -2827,7 +2907,7 @@
       if (idx >= total) { toast(`已全部导出 ${total} 份 PDF（每份 ≤5 页）`); return; }
       const chunk = books[idx];
       const n = idx + 1;
-      pf.innerHTML = buildPrintBook(chunk, mode, reserve, modeName, sort, n, total, arr.length, startNo);
+      pf.innerHTML = buildPrintBook(chunk, mode, reserve, modeName, sort, n, total, arr.length, startNo, grid3);
       startNo += chunk.length;
       idx++;
       setTimeout(() => {

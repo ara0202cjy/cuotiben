@@ -394,10 +394,14 @@
     return due.sort((a, b) => nextDueDate(a) - nextDueDate(b));
   }
   // 记录一次复习结果（correct: true/false）；走完整个周期全对后自动归类「已掌握」
+  // 每天仅保留一条批改记录：同一天再次批改会覆盖当天旧记录（仅记最后一次），删去当天其余记录。
   function recordReview(id, correct) {
     const e = getError(id);
     if (!e) return;
     e.reviews = e.reviews || [];
+    const todayKey = dayStart(Date.now());
+    // 按「日期」去重：丢弃当天已有的全部记录，只保留随后要追加的这一次（最后一次）
+    e.reviews = e.reviews.filter(r => dayStart(new Date(r.date).getTime()) !== todayKey);
     e.reviews.push({ date: now(), correct: !!correct });
     // 已掌握题重练：无论对错都不自动推送（保持 known）；其余题按周期判定是否归为已掌握
     if (e.mastery !== 'known' && isMastered(e)) e.mastery = 'known';
