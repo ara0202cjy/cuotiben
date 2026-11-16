@@ -2828,7 +2828,9 @@
       const sel = list.filter(e => checked.includes(e.id));
       const m = defaultModeFor(sel);
       let t = '默认按学科：' + ({ compact: '紧凑连排', write: '留白作答' }[m] || '留白作答');
-      if (m === 'compact' && sel.some(isShortQuestion)) t += ' · 短题（<13 汉字）自动 3 栏';
+      // 统计真正会并排的短题：留白模式下，需要作答区的科目（数学等）不参与三栏
+      const n3 = sel.filter(e => isShortQuestion(e) && !(m === 'write' && needWrite(e))).length;
+      if (n3) t += ` · 其中 ${n3} 道短题 3 栏并排（<13 汉字/26 英文字符）`;
       tip.textContent = t;
     };
     bindSingle('expMode', v => { expMode = v; updateModeTip(); });
@@ -2853,13 +2855,15 @@
 
   // 把有序题目切成「行」：紧凑模式下短题每 3 道一行（3 栏），其余题单独一行。
   // 每行形如 { items:[e,...], grid:boolean }；测量与打印共用此函数，保证排版一致。
-  function printRows(chunk, mode, grid3) {
+  function printRows(chunk, mode, grid3, reserve) {
     const rows = [];
     let buf = [];
     // buf 内均为短题：无论 1/2/3 道都用三栏容器（不足 3 道则留空列），保证短题排布一致
     const flush = () => { if (buf.length) { rows.push({ items: buf.slice(), grid: true }); buf = []; } };
     chunk.forEach(e => {
-      const short = grid3 && mode === 'compact' && isShortQuestion(e);
+      // 短题即进三栏：即使是「留白作答」模式，语文/英语这类不需要作答区的短题也并排；
+      // 需要留白的大题（数学等）仍独占整行，保证有书写空间。
+      const short = grid3 && isShortQuestion(e) && !(reserve && needWrite(e));
       if (short) {
         buf.push(e);
         if (buf.length === 3) flush();
@@ -2900,7 +2904,7 @@
         <h1 class="pf-title">错题练习卷${bookTotal > 1 ? `（${bookNo}/${bookTotal}）` : ''}</h1>
         <p class="pf-sub">本册 ${chunk.length} 道 / 共 ${totalCount} 道 · ${modeName}${sort === 'subject' ? ' · 按科目分组' : ''}${bookInfo}</p>
       </div>`;
-    const rows = printRows(chunk, mode, grid3);
+    const rows = printRows(chunk, mode, grid3, reserve);
     let no = (startNo || 0);
     const body = rows.map(row => {
       const html = renderPrintRow(row, mode, reserve, no, sort);
@@ -3002,7 +3006,8 @@
     const reserve = mode === 'write' || mode === 'page';
     const modeName = { compact: '紧凑连排', write: '留白作答', page: '一题一页' }[mode] || '紧凑连排';
     // 三栏仅用于紧凑连排（含「默认」解析出的紧凑）：有短题才启用
-    const grid3 = mode === 'compact' && arr.some(isShortQuestion);
+    // 短题三栏：紧凑连排与留白作答都启用（"一题一页"不启用）；留白模式下只对不需作答区的短题生效
+    const grid3 = mode !== 'page' && arr.some(isShortQuestion);
     const pf = $('#printArea');
 
     toast('正在计算分页…');

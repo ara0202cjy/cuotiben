@@ -574,6 +574,14 @@ body {
 .pf-grid3 .pf-no { font-size: 12px; }
 .pf-grid3 .pf-q { font-size: 12px; margin: 2px 0; word-break: break-word; }
 .pf-grid3 .pf-imgs { display: none; }  /* 短题判定已排除带图题，双保险 */
+/* 留白作答模式下，进入三栏的短题（语文/英语，无需作答区）不占 96mm 作答卡高度 */
+.pf-mode-write .pf-grid3 .pf-item,
+.pf-mode-write .pf-grid3 .pf-item.nowrite {
+  height: auto; min-height: 0; display: block;
+  padding: 4px 6px 6px; margin: 0;
+  border: 0; border-bottom: 1px dashed #dfe7e2; border-radius: 0;
+  overflow: visible;
+}
 /* 固定整题 118mm：一页严格 2 题（即使打印引擎的可用页高更小也能放下）。
    题目在顶部优先显示，题目偏长时优先压缩下方留白区；极长题也不会挤掉第二题。 */
 .pf-mode-write .pf-item { padding: 4px 12px; margin-bottom: 5px; height: 96mm; overflow: hidden; display: flex; flex-direction: column; }
