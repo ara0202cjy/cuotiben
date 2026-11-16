@@ -461,6 +461,12 @@ body {
 .speak-btn:hover { border-color: var(--primary); }
 .speak-btn:active, .speak-btn.speaking { transform: scale(.92); background: var(--primary); color: #fff; border-color: var(--primary); }
 .speak-btn svg { pointer-events: none; }
+/* 题目 + 朗读按钮同一行：题目占满宽度，喇叭固定贴在题目右侧 */
+.q-line { display: flex; align-items: flex-start; gap: 8px; }
+.q-line > .item-q,
+.q-line > .exp-q,
+.q-line > .detail-q { flex: 1 1 auto; min-width: 0; margin-right: 0; }
+.q-line > .speak-btn { margin-left: 0; margin-top: 2px; }
 @media print { .speak-btn { display: none !important; } }
 .records { margin-top: 10px; }
 .rec { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); padding: 6px 0; border-top: 1px solid var(--line); }

@@ -561,7 +561,7 @@
     const ok = e.reviews.filter(r => r.correct).length;
     const bad = e.reviews.length - ok;
     return `
-      ${qFull ? `<div class="exp-q">${qFull}</div>` : ''}
+      ${qFull ? `<div class="q-line"><div class="exp-q">${qFull}</div>${speakBtnHTML(e)}</div>` : ''}
       ${showImg ? imgList(e).map(s => `<img class="exp-img zoomable" src="${s}" alt=""/>`).join('') : ''}
       <div class="exp-meta-row"><span>收录于 ${fmtDate(e.createdAt)}</span><span>复习 ${e.reviews.length} 次 · 正确 ${ok} 次 · 错误 ${bad} 次</span></div>
       <div class="exp-when">${nextPushText(e)}</div>
@@ -590,7 +590,7 @@
     // 自测模式开：答案遮住，点本题「显示答案」才展开；自测模式关：完全不显示答案
     const showAns = !!(state.selfTest && ans);
     return `
-      ${qFull ? `<div class="exp-q">${qFull}</div>` : ''}
+      ${qFull ? `<div class="q-line"><div class="exp-q">${qFull}</div>${speakBtnHTML(e)}</div>` : ''}
       ${imgList(e).map(s => `<img class="exp-img zoomable" src="${s}" alt=""/>`).join('')}
       ${showAns ? `<div class="exp-ans" data-ans-body="${e.id}" hidden><span class="ga-k">答案：</span>${esc(ans)}</div>
       <button class="btn-show-ans" type="button" data-ans-btn="${e.id}">显示答案</button>` : ''}
@@ -643,8 +643,7 @@
     let h = '';
     if (qText) {
       const hint = isEnDictError(e) ? '<span class="en-ask">（写出英文单词）</span>' : '';
-      // 注意：浏览/详情视图默认隐藏答案，此处不放朗读按钮，避免把英文答案念出来；朗读只在批改（默写）页提供
-      h += `<div class="detail-q">${qText}${hint}</div>`;
+      h += `<div class="q-line"><div class="detail-q">${qText}${hint}</div>${speakBtnHTML(e)}</div>`;
     }
     h += imgs.map(s => `<img class="detail-img zoomable" src="${s}" alt=""/>`).join('');
     return h || '<div class="detail-q">（无内容）</div>';
@@ -662,7 +661,7 @@
           ${selectable ? `<input type="checkbox" class="item-check" data-id="${e.id}" ${selected ? 'checked' : ''} aria-label="选择"/>` : ''}
           ${metaTagsHTML(e, { subject: false, mastery: false })}
         </div>
-        ${q ? `<div class="item-q">${q}</div>` : ''}
+        ${q ? `<div class="q-line"><div class="item-q">${q}</div>${speakBtnHTML(e)}</div>` : ''}
         ${hasImg ? imgs.map(s => `<img class="item-img zoomable" src="${s}" alt=""/>`).join('') : ''}
         ${expandable ? `<div class="item-exp" hidden>${errorExpandHTML(e, false)}</div>` : `
         <div class="item-when">录入于 ${fmtDate(e.createdAt)}</div>`}
@@ -672,7 +671,7 @@
     $$('.item').forEach(it => {
       const exp = it.querySelector('.item-exp');
       if (exp) it.addEventListener('click', ev => {
-        if (ev.target.closest('.item-edit') || ev.target.closest('.item-star')) return;
+        if (ev.target.closest('.item-edit') || ev.target.closest('.item-star') || ev.target.closest('.speak-btn')) return;
         exp.hidden = !exp.hidden;
         it.classList.toggle('open', !exp.hidden);
       });
@@ -2329,7 +2328,7 @@
     return `
       <div class="grade-item" data-id="${e.id}">
         <div class="grade-top">${srcTagsHTML(e, sm, lean)}${metaTagsHTML(e, { mastery: false })}</div>
-        ${q ? `<div class="grade-q">${q}${speakBtnHTML(e)}</div>` : ''}
+        ${q ? `<div class="grade-q">${q}</div>` : ''}
         ${imgs.map(s => `<img class="grade-img zoomable" src="${s}" alt=""/>`).join('')}
         <div class="grade-ans"${hasAns ? ' style="display:none"' : ''}><span class="ga-k">答案：</span>${e.answer || '（未填写答案）'}</div>
         ${hasAns ? '<button class="btn-show-ans" type="button">显示答案</button>' : ''}
