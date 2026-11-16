@@ -175,6 +175,26 @@
   // 语文专属：字词默写 / 字词（录入后自动注音）
   const CHINESE_DICT_KPS = ['字词默写', '字词'];
   function isChineseDictKp(name) { return CHINESE_DICT_KPS.includes(name); }
+  // 英语专属：单词默写（录入英文单词后自动查中文意思，生成「看中文写英文」的默写题）
+  const ENGLISH_DICT_KPS = ['单词默写', '单词', '英语单词', '词汇', '单词听写'];
+  function isEnglishDictKp(name) { return ENGLISH_DICT_KPS.includes(name); }
+  // 查英汉词库：返回中文释义（未收录返回 ''）。兼容大小写、首尾空格与多余空格。
+  function lookupEn(word) {
+    const v = (global && global.EN_VOCAB) || {};
+    const k = String(word || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    if (!k) return '';
+    if (v[k]) return v[k];
+    // 兼容复数 / 过去式等常见变形：依次退回 去 s / es / ed / ing / y→i 等
+    const tries = [];
+    if (/ies$/.test(k)) tries.push(k.replace(/ies$/, 'y'));
+    if (/es$/.test(k)) tries.push(k.slice(0, -2));
+    if (/s$/.test(k)) tries.push(k.slice(0, -1));
+    if (/ied$/.test(k)) tries.push(k.replace(/ied$/, 'y'));
+    if (/ed$/.test(k)) tries.push(k.slice(0, -2), k.slice(0, -1));
+    if (/ing$/.test(k)) tries.push(k.slice(0, -3), k.slice(0, -3) + 'e');
+    for (const t of tries) if (t && v[t]) return v[t];
+    return '';
+  }
 
   /* ---------- 工具 ---------- */
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -869,7 +889,7 @@
     registerAccount, verifyAccount, setCurrentName, logout,
     setAccountCloud, getCloud, setCloud, seedAccounts, migrateLegacy, migrateDedupeReviews,
     // 业务
-    getSubjects, addSubject, deleteSubject, renameSubject, MASTERY, isChineseDictKp,
+    getSubjects, addSubject, deleteSubject, renameSubject, MASTERY, isChineseDictKp, isEnglishDictKp, lookupEn,
     getKeywords, addKeyword, updateKeyword, deleteKeyword, pruneUnusedKeywords,
     getErrors, getError, addError, updateError, deleteError,
     nextDueDate, isMastered, dueReviews, recordReview, getRType, isSchoolSource, setKeywordRType,

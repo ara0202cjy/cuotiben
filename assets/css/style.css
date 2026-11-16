@@ -443,6 +443,12 @@ body {
 .detail-img { width: 100%; border-radius: var(--radius-sm); margin: 10px 0; }
 .detail-q { font-size: 16px; line-height: 1.7; white-space: pre-wrap; }
 .pinyin-line { color: var(--primary-deep); font-size: 14px; letter-spacing: 1px; margin: 6px 0; }
+/* 英语单词默写：预览里「英文→中文」命中/未收录 */
+.en-hit { color: var(--primary-deep); }
+.en-miss { color: var(--bad); }
+.en-miss-tip { margin-top: 6px; font-size: 12px; color: var(--bad); line-height: 1.5; }
+/* 英语默写题：题干后的小提示 */
+.en-ask { font-size: 12px; color: var(--ink-3); margin-left: 6px; font-weight: 400; }
 .records { margin-top: 10px; }
 .rec { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); padding: 6px 0; border-top: 1px solid var(--line); }
 .rec .r-ok { color: var(--ok); } .rec .r-bad { color: var(--bad); }

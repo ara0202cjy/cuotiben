@@ -603,12 +603,20 @@
     const kp = DB.getKeywords('kp').find(k => k.id === e.kpId);
     return e.subject === '语文' && kp && DB.isChineseDictKp(kp.name);
   }
+  // 英语单词默写：题目显示中文意思，需写出英文单词
+  function isEnDictError(e) {
+    const kp = DB.getKeywords('kp').find(k => k.id === e.kpId);
+    return e.subject === '英语' && kp && DB.isEnglishDictKp(kp.name);
+  }
   // 题目展示块：文字（字词默写为拼音）在上，图片在下
   function questionBlockHTML(e, isPinyin) {
     const qText = isPinyin ? (e.pinyin || e.text || '') : (e.text || '');
     const imgs = imgList(e);
     let h = '';
-    if (qText) h += `<div class="detail-q">${qText}</div>`;
+    if (qText) {
+      const hint = isEnDictError(e) ? '<span class="en-ask">（写出英文单词）</span>' : '';
+      h += `<div class="detail-q">${qText}${hint}</div>`;
+    }
     h += imgs.map(s => `<img class="detail-img zoomable" src="${s}" alt=""/>`).join('');
     return h || '<div class="detail-q">（无内容）</div>';
   }
@@ -1545,8 +1553,14 @@
 
     function kpOptions() {
       const list = sortKwBySubject(DB.getKeywords('kp').filter(k => k.subject === form.subject));
+      // 英语科目：若还没有「单词默写」类知识点，给一个一键创建的快捷入口，省得手输名称
+      const hasEnDict = form.subject === '英语'
+        && DB.getKeywords('kp').some(k => k.subject === '英语' && DB.isEnglishDictKp(k.name));
+      const enQuick = (form.subject === '英语' && !hasEnDict)
+        ? `<span class="kw kw-add" id="addEnDictKp">＋ 单词默写模式</span>` : '';
       return `<span class="kw ${!form.kpId ? 'active' : ''}" data-kp="">不选</span>
         ${list.map(k => `<span class="kw ${form.kpId === k.id ? 'active' : ''}" data-kp="${k.id}">${k.name}</span>`).join('')}
+        ${enQuick}
         <span class="kw kw-add" id="addKp">＋ 新增知识点</span>`;
     }
     function srcOptions() {
@@ -1562,18 +1576,42 @@
       // 语文字词默写 -> 中文转拼音题目，中文作为正确答案，隐藏"正确答案"输入框
       const kp = DB.getKeywords('kp').find(k => k.id === form.kpId);
       const isDict = form.subject === '语文' && kp && DB.isChineseDictKp(kp.name);
+      // 英语单词默写 -> 英文单词查中文意思，中文作题目、英文作答案（「看中文写英文」）
+      const isEnDict = form.subject === '英语' && kp && DB.isEnglishDictKp(kp.name);
       const inBatch = entryMode === 'batch';
       // 字词标签：单题与批量均展示拼音预览；批量文字下不展示"正确答案"输入框（交批改判）
-      $('#pinyinWrap').style.display = isDict ? 'block' : 'none';
-      $('#entryAnsField').style.display = inBatch ? 'none' : 'block';
+      $('#pinyinWrap').style.display = (isDict || isEnDict) ? 'block' : 'none';
+      $('#entryAnsField').style.display = (inBatch || isEnDict) ? 'none' : 'block';
       if (inBatch && batchType === 'text') {
-        $('#entryQLabel').textContent = isDict
-          ? '批量字词（用 ; 或 ；分隔，每道自动转拼音题）'
-          : '批量文字题目（用英文 ; 或中文 ；分隔不同题目，每道自动成为一道错题）';
+        $('#entryQLabel').textContent = isEnDict
+          ? '批量英文单词（用 ; 或 ；分隔，每个单词自动匹配中文意思）'
+          : isDict
+            ? '批量字词（用 ; 或 ；分隔，每道自动转拼音题）'
+            : '批量文字题目（用英文 ; 或中文 ；分隔不同题目，每道自动成为一道错题）';
       } else {
-        $('#entryQLabel').textContent = isDict ? '字词内容（输入中文，将自动转为拼音题目）' : '题干 / 错题内容';
+        $('#entryQLabel').textContent = isEnDict
+          ? '英文单词（输入后自动匹配中文意思，生成「看中文写英文」的默写题）'
+          : isDict ? '字词内容（输入中文，将自动转为拼音题目）' : '题干 / 错题内容';
       }
-      if (isDict) {
+      if (isEnDict) {
+        $('#pinyinLabel').textContent = '自动匹配的中文意思（作为题目显示，答案为你输入的英文单词）';
+        const words = inBatch && batchType === 'text'
+          ? (form.text || '').split(/[;；]/).map(s => s.trim()).filter(Boolean)
+          : (form.text || '').trim() ? [form.text.trim()] : [];
+        if (!words.length) {
+          $('#pinyinVal').textContent = '（输入英文单词后，这里会显示自动匹配的中文意思）';
+        } else {
+          const miss = [];
+          const shown = words.map(w => {
+            const m = DB.lookupEn(w);
+            if (!m) { miss.push(w); return `<span class="en-miss">${esc(w)} → 未收录</span>`; }
+            return `<span class="en-hit">${esc(w)} → ${esc(m)}</span>`;
+          });
+          $('#pinyinVal').innerHTML = shown.join(' ｜ ')
+            + (miss.length ? `<div class="en-miss-tip">有 ${miss.length} 个单词词库未收录，保存时会作为普通题（题目为英文单词），可在保存后手动补充中文意思。</div>` : '');
+        }
+      } else if (isDict) {
+        $('#pinyinLabel').textContent = '题目将自动转为拼音（复习时显示拼音，中文作正确答案不展示）';
         if (inBatch && batchType === 'text') {
           // 批量文字：逐段预览拼音
           const segs = (form.text || '').split(/[;；]/).map(s => s.trim()).filter(Boolean);
@@ -1592,6 +1630,12 @@
       $$('#entrySrc .kw[data-src]').forEach(x => x.addEventListener('click', () => { form.srcId = x.dataset.src || null; refresh(); }));
       $('#addKp')?.addEventListener('click', () => {
         const n = prompt('输入新知识点名称：'); if (n && n.trim()) { const k = DB.addKeyword('kp', n, form.subject); form.kpId = k.id; refresh(); }
+      });
+      // 一键创建「单词默写」知识点并选中，随即进入英语单词默写模式
+      $('#addEnDictKp')?.addEventListener('click', () => {
+        const k = DB.addKeyword('kp', '单词默写', form.subject);
+        form.kpId = k.id; refresh();
+        toast('已启用「单词默写」：输入英文单词会自动匹配中文意思 ✓');
       });
       $('#addSrc')?.addEventListener('click', () => {
         const n = prompt('输入新来源名称（如：单元测试/作业）：'); if (n && n.trim()) { const k = DB.addKeyword('src', n, form.subject); form.srcId = k.id; refresh(); }
@@ -1628,7 +1672,7 @@
         <div id="imgPreview"></div>
       </div>
       <div class="field" id="pinyinWrap" style="display:none">
-        <label>题目将自动转为拼音（复习时显示拼音，中文作正确答案不展示）</label>
+        <label id="pinyinLabel">题目将自动转为拼音（复习时显示拼音，中文作正确答案不展示）</label>
         <div class="pinyin-line" id="pinyinVal">${form.pinyin}</div>
       </div>
       <div class="field"><label>知识点</label><div class="kw-box" id="entryKp">${kpOptions()}</div>
@@ -1732,8 +1776,20 @@
           if (!segs.length) { toast('请用 ; 或 ； 分隔，至少输入一道题目'); return; }
           const isDict = form.subject === '语文'
             && DB.isChineseDictKp(DB.getKeywords('kp').find(k => k.id === form.kpId)?.name);
+          const isEnDict = form.subject === '英语'
+            && DB.isEnglishDictKp(DB.getKeywords('kp').find(k => k.id === form.kpId)?.name);
+          let enMissed = 0;
           segs.forEach(seg => {
-            if (isDict) {
+            if (isEnDict) {
+              // 英语单词：中文意思作题目、英文单词作答案；未收录则原文作题目（普通题）
+              const mean = DB.lookupEn(seg);
+              if (!mean) enMissed++;
+              DB.addError({
+                subject: form.subject, mode: 'text', text: mean || seg, image: null, images: [],
+                kpId: form.kpId, srcId: form.srcId, mastery: form.mastery,
+                answer: mean ? seg : '', pinyin: ''
+              });
+            } else if (isDict) {
               const py = DB.toPinyin(seg);
               DB.addError({
                 subject: form.subject, mode: 'text', text: py || seg, image: null, images: [],
@@ -1746,7 +1802,7 @@
               });
             }
           });
-          toast('已批量保存 ' + segs.length + ' 道文字题 ✓');
+          toast('已批量保存 ' + segs.length + ' 道文字题 ✓' + (enMissed ? `（其中 ${enMissed} 个单词未收录中文意思，已按普通题保存）` : ''));
         } else {
           if (!form.images.length) { toast('请至少添加一张图片'); return; }
           form.images.forEach(img => DB.addError({
@@ -1763,6 +1819,8 @@
       if (!hasText && !hasImg) { toast('请填写文字或从相册添加图片'); return; }
       const isDict = form.subject === '语文'
         && DB.isChineseDictKp(DB.getKeywords('kp').find(k => k.id === form.kpId)?.name);
+      const isEnDict = form.subject === '英语'
+        && DB.isEnglishDictKp(DB.getKeywords('kp').find(k => k.id === form.kpId)?.name);
       const mode = (hasText && hasImg) ? 'mixed' : hasImg ? 'image' : 'text';
       let payload = {
         subject: form.subject, mode,
@@ -1770,7 +1828,14 @@
         kpId: form.kpId, srcId: form.srcId, mastery: form.mastery, answer: form.answer,
         pinyin: '',
       };
-      if (isDict) {
+      if (isEnDict && hasText) {
+        const word = form.text.trim();
+        const mean = DB.lookupEn(word);
+        // 中文意思作题目、英文单词作答案；未收录则原文作题目、答案留空（保存后可手动补）
+        payload.text = mean || word;
+        payload.answer = mean ? word : (form.answer || '');
+        payload.pinyin = '';
+      } else if (isDict) {
         const py = DB.toPinyin(form.text);
         payload.text = py || form.text;     // 题目显示为拼音
         payload.answer = form.text;        // 中文作为正确答案（不展示）
