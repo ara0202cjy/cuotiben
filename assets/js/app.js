@@ -608,6 +608,34 @@
     const kp = DB.getKeywords('kp').find(k => k.id === e.kpId);
     return e.subject === '英语' && kp && DB.isEnglishDictKp(kp.name);
   }
+  // 英语单词朗读：用浏览器自带语音合成（离线可用，无需联网/账号）
+  function speakWord(text) {
+    const w = String(text || '').trim();
+    if (!w) return;
+    try {
+      const synth = window.speechSynthesis;
+      const Utter = window.SpeechSynthesisUtterance;
+      if (!synth || !Utter) { toast('当前浏览器不支持语音朗读'); return; }
+      synth.cancel();                       // 连点时不叠音，只读最后一次
+      const u = new Utter(w);
+      u.lang = 'en-US';
+      u.rate = 0.82;                        // 稍慢，便于辨音核对拼写
+      u.pitch = 1;
+      const vs = (synth.getVoices && synth.getVoices()) || [];
+      const en = vs.find(v => /^en[-_]US/i.test(v.lang)) || vs.find(v => /^en/i.test(v.lang));
+      if (en) u.voice = en;                 // 没有英文语音时退回系统默认
+      synth.speak(u);
+    } catch (err) { toast('朗读失败：' + (err && err.message ? err.message : err)); }
+  }
+  // 朗读按钮：仅「英语单词默写」题、且有英文答案时出现（答案即要朗读的单词）
+  function speakBtnHTML(e, cls) {
+    if (!isEnDictError(e)) return '';
+    const w = String(e.answer || '').trim();
+    if (!w) return '';
+    return `<button type="button" class="speak-btn${cls ? ' ' + cls : ''}" data-speak="${esc(w)}" title="朗读单词（听音核对拼写）" aria-label="朗读单词">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg>
+    </button>`;
+  }
   // 题目展示块：文字（字词默写为拼音）在上，图片在下
   function questionBlockHTML(e, isPinyin) {
     const qText = isPinyin ? (e.pinyin || e.text || '') : (e.text || '');
@@ -615,6 +643,7 @@
     let h = '';
     if (qText) {
       const hint = isEnDictError(e) ? '<span class="en-ask">（写出英文单词）</span>' : '';
+      // 注意：浏览/详情视图默认隐藏答案，此处不放朗读按钮，避免把英文答案念出来；朗读只在批改（默写）页提供
       h += `<div class="detail-q">${qText}${hint}</div>`;
     }
     h += imgs.map(s => `<img class="detail-img zoomable" src="${s}" alt=""/>`).join('');
@@ -2300,7 +2329,7 @@
     return `
       <div class="grade-item" data-id="${e.id}">
         <div class="grade-top">${srcTagsHTML(e, sm, lean)}${metaTagsHTML(e, { mastery: false })}</div>
-        ${q ? `<div class="grade-q">${q}</div>` : ''}
+        ${q ? `<div class="grade-q">${q}${speakBtnHTML(e)}</div>` : ''}
         ${imgs.map(s => `<img class="grade-img zoomable" src="${s}" alt=""/>`).join('')}
         <div class="grade-ans"${hasAns ? ' style="display:none"' : ''}><span class="ga-k">答案：</span>${e.answer || '（未填写答案）'}</div>
         ${hasAns ? '<button class="btn-show-ans" type="button">显示答案</button>' : ''}
@@ -3068,6 +3097,15 @@
   }
 
   /* ---------------- 启动 ---------------- */
+  // 朗读按钮统一走事件委托：详情页 / 批改页 / 各类展开块都是动态渲染，绑一次即可全覆盖
+  document.addEventListener('click', ev => {
+    const b = ev.target && ev.target.closest ? ev.target.closest('[data-speak]') : null;
+    if (!b) return;
+    ev.preventDefault(); ev.stopPropagation();
+    speakWord(b.getAttribute('data-speak'));
+    b.classList.add('speaking');
+    setTimeout(() => b.classList.remove('speaking'), 600);
+  });
   DB.migrateLegacy();
   DB.seedAccounts();
   initPullToSync();

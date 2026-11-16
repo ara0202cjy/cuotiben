@@ -449,6 +449,19 @@ body {
 .en-miss-tip { margin-top: 6px; font-size: 12px; color: var(--bad); line-height: 1.5; }
 /* 英语默写题：题干后的小提示 */
 .en-ask { font-size: 12px; color: var(--ink-3); margin-left: 6px; font-weight: 400; }
+/* 朗读记号（喇叭）：点击朗读该单词 */
+.speak-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; padding: 0; margin-left: 8px;
+  border: 1px solid var(--line); border-radius: 50%;
+  background: var(--surface-2); color: var(--primary-deep);
+  cursor: pointer; vertical-align: middle; flex: 0 0 auto;
+  -webkit-tap-highlight-color: transparent;
+}
+.speak-btn:hover { border-color: var(--primary); }
+.speak-btn:active, .speak-btn.speaking { transform: scale(.92); background: var(--primary); color: #fff; border-color: var(--primary); }
+.speak-btn svg { pointer-events: none; }
+@media print { .speak-btn { display: none !important; } }
 .records { margin-top: 10px; }
 .rec { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); padding: 6px 0; border-top: 1px solid var(--line); }
 .rec .r-ok { color: var(--ok); } .rec .r-bad { color: var(--bad); }
