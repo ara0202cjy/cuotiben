@@ -49,8 +49,11 @@
   // 今天零点（用于判断「逾期」与「今日已批」）
   function startOfToday() { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); }
   // 仍在攻克中的重练题（已掌握的不再出现在重练队列里）
+  // 重练清单（未掌握、且**尚未进入待复习**）：一旦到期进入「待复习」，就自动从「重练」栏移出，避免同一道题两栏重复
   function redoDueList() {
-    return getRedo().map(id => DB.getError(id)).filter(e => e && !DB.isMastered(e));
+    const dueIds = new Set(DB.dueReviews().map(e => e.id));
+    return getRedo().map(id => DB.getError(id))
+      .filter(e => e && !DB.isMastered(e) && !dueIds.has(e.id));
   }
   // ★ 重点：未掌握的星标题（含尚未到期的，可提前练）
   function starredList() {
@@ -1156,9 +1159,14 @@
         const errs = ids.map(id => DB.getError(id)).filter(Boolean);
         if (!errs.length) { toast('没有可重练的错题'); return; }
         // 选中题加入首页「错题重练」板块（常驻重练清单；不动题库，仅加入重练池）
-        addRedo(ids);
+        // 已到复习日（待复习）的题不重复占用重练栏，直接跳过并提示
+        const dueIds = new Set(DB.dueReviews().map(e => e.id));
+        const addIds = ids.filter(id => !dueIds.has(id));
+        const skipped = ids.length - addIds.length;
+        if (addIds.length) addRedo(addIds);
         setView('home');
-        toast(`已加入错题重练 ${ids.length} 道 · 在首页「错题重练」板块集中练习`);
+        if (!addIds.length) toast(`选中的 ${ids.length} 道已在「待复习」里，无需加入重练`);
+        else toast(`已加入错题重练 ${addIds.length} 道` + (skipped ? `（另有 ${skipped} 道已在待复习，已跳过）` : '') + ' · 在首页「错题重练」板块集中练习');
       });
       $('#delSel').addEventListener('click', () => {
         const ids = Array.from(state.selected);
@@ -2005,7 +2013,10 @@
 
   // 复习页 = 唯一练习中心：待复习（自然到期 + 加练）与错题重练合并成一套队列
   function renderReview() {
-    const tab = state.revTab || 'due';
+    // 复习栏固定三个板块：全部（待复习+重练）/ 待复习 / 重练
+    const TABS = ['all', 'due', 'redo'];
+    let tab = state.revTab || 'due';
+    if (!TABS.includes(tab)) { tab = 'due'; state.revTab = tab; }
     const sm = sourceMap();
     const fOn = revFilterActive() > 0;
     // 复习默认按学科排序（同科内按下次推送时间近→远）
@@ -2014,18 +2025,14 @@
     // 计数跟随筛选：避免「只显示 2 道，标签却写 5」
     const dueN = DB.dueReviews().filter(matchRevFilter).length;
     const redoN = redoDueList().filter(matchRevFilter).length;
-    const overdueN = overdueList().filter(matchRevFilter).length;
-    const starN = starredList().filter(matchRevFilter).length;
     const allN = new Set(DB.dueReviews().filter(matchRevFilter).map(e => e.id)
       .concat(redoDueList().filter(matchRevFilter).map(e => e.id))).size;
     const mastered = DB.getErrors().filter(e => DB.isMastered(e));
     const emptyText = fOn
       ? '当前筛选下没有题，试试放宽条件或点「清除」。'
       : (tab === 'redo'
-        ? '还没有重练题。去「笔记本」勾选错题点「加入重练」，就会出现在这里。'
-        : (tab === 'overdue' ? '没有逾期的题，节奏保持得很好。'
-          : (tab === 'star' ? '还没有标星的重点题。在卡片或详情页点 ☆ 就能标记。'
-            : (tab === 'all' ? '暂时没有需要练习的题，继续保持！' : '今天没有到期要复习的错题，继续保持！'))));
+        ? '还没有重练题。去「笔记本」勾选错题点「加入重练」，就会出现在这里。已到复习日的题会自动转到「待复习」。'
+        : (tab === 'all' ? '暂时没有需要练习的题，继续保持！' : '今天没有到期要复习的错题，继续保持！'));
     const fChips = revFilterChips();
     const cards = list.map(e => {
       const o = sm.get(e.id) || {};
@@ -2063,11 +2070,9 @@
         <button class="f-clear" id="revFClear">清除筛选 ✕</button>
       </div>` : ''}
       <div class="seg-tabs" id="revTabs">
+        <button data-tab="all" class="${tab === 'all' ? 'on' : ''}">全部<i>${allN}</i></button>
         <button data-tab="due" class="${tab === 'due' ? 'on' : ''}">待复习<i>${dueN}</i></button>
         <button data-tab="redo" class="${tab === 'redo' ? 'on' : ''}">重练<i>${redoN}</i></button>
-        <button data-tab="overdue" class="${tab === 'overdue' ? 'on' : ''}">逾期<i>${overdueN}</i></button>
-        <button data-tab="star" class="${tab === 'star' ? 'on' : ''}">重点<i>${starN}</i></button>
-        <button data-tab="all" class="${tab === 'all' ? 'on' : ''}">全部<i>${allN}</i></button>
       </div>
       <p class="rev-tip">${tab === 'redo'
         ? '重练题来自你手动勾选：批改后无论对错都会进入下一轮推送，并自动移出重练清单。'
