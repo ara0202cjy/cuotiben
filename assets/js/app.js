@@ -2785,6 +2785,7 @@
       <button class="close-x">✕</button>
       <h3>选择要导出的错题</h3>
       <p class="f-hint" style="margin:-4px 2px 12px">${hint || `已按当前筛选列出共 ${list.length} 道，勾选后导出为 A4 PDF。单份超过 5 页会自动拆分为多份 PDF（每份 ≤5 页），请逐份「另存为 PDF」。`}</p>
+      <p class="f-hint" style="margin:-8px 2px 12px;color:var(--bad)">打印提示：纸张选 A4、缩放选 100%（实际大小，不要用「适合纸张」）；若在苹果手机/平板上导出的 PDF 拿到打印机上丢字，请改用电脑浏览器（Chrome/Edge）导出后再打印。</p>
       <div class="exp-opts">
         <div class="exp-opt-row"><span class="exp-opt-k">排版</span><div class="kw-box" id="expMode">
           <span class="kw ${expMode === 'auto' ? 'active' : ''}" data-v="auto">默认</span>

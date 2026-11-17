@@ -539,7 +539,10 @@ body {
 /* ============ 导出 PDF 打印区（屏幕隐藏，打印时显示） ============ */
 #printArea { display: none; }
 /* 打印版式：打印时用于输出，屏幕下仅用于离屏测量容器 .pf-measure（二者共用，保证量高准确） */
-.pf-doc { font-family: var(--font); color: #222; font-size: 13px; line-height: 1.6; }
+/* 打印/测量统一字族：宋体在各平台都会被嵌成兼容性最好的 TrueType 子集，
+   避免苹果 PingFang 被嵌成 Type1 子集后，部分打印机整页丢字。
+   注意：离屏测量容器也用同一字族，保证「量出来的行数」与「打印出来的行数」一致。 */
+.pf-doc { font-family: "Songti SC", "STSong", "SimSun", "Microsoft YaHei", "Heiti SC", "Noto Serif CJK SC", serif; color: #222; font-size: 13px; line-height: 1.6; }
 /* 最后一题不留底边距，避免被挤到下一页形成空白页 */
 .pf-item:last-child { margin-bottom: 0 !important; }
 .pf-head { border-bottom: 2px solid #5d9b85; padding-bottom: 8px; margin-bottom: 14px; }
@@ -615,6 +618,27 @@ body {
      再叠加绝对定位的打印区，很容易多顶出一张空白页 */
   body > *:not(#printArea) { display: none !important; }
   #printArea { display: block; position: static; width: auto; margin: 0; padding: 0; }
+  /* 打印字体：优先用各平台都稳定的宋体/黑体。苹果的 PingFang 会被嵌成 Type1 子集，
+     部分打印机/PDF 解释器解析不了，会出现整页只剩几个字的情况，故打印时不用 PingFang。 */
+  #printArea, #printArea * {
+    font-family: "Songti SC", "STSong", "SimSun", "Microsoft YaHei", "Heiti SC", "Noto Serif CJK SC", serif !important;
+  }
+  /* 音标需要能显示 IPA 符号的字体，单独指定回退顺序 */
+  #printArea .en-phon {
+    font-family: "Segoe UI Symbol", "Arial Unicode MS", "DejaVu Sans", "Songti SC", serif !important;
+  }
+  /* 学科/知识点标签：打印不依赖浅色底与浅色字，改成深色文字+描边，避免「图标里的字看不见」 */
+  #printArea .subj-tag,
+  #printArea .tag {
+    color: #333 !important;
+    background: transparent !important;
+    border: 0.6pt solid #8a8a8a !important;
+    -webkit-print-color-adjust: economy;
+    print-color-adjust: economy;
+  }
+  #printArea .subj-tag .subj-dot { display: none !important; }
+  /* 作答区虚线改细实线：降低打印机解释复杂路径的负担 */
+  #printArea .pf-write { border-style: solid !important; }
 }
 
 /* ============ 编辑图标（错题本 / 复习列表 / 最近错题） ============ */
